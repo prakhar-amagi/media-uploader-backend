@@ -1,0 +1,94 @@
+[
+  {
+    "channel": "Zee News",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-zeenews-samsungin",
+      "Xiaomi": "amg01412-xiaomiasia-zeenews-xiaomi",
+      "LG": "amg02481-indiadotcomdigitalprivatelimitedfast-zeenews-lgin"
+    }
+  },
+  {
+    "channel": "Zee Business",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-zeebusiness-samsungin",
+      "Xiaomi": "amg01412-xiaomiasia-zeebusiness-xiaomi",
+      "LG": "amg02481-indiadotcomdigitalprivatelimitedfast-zeebusiness-lgin"
+    }
+  },
+  {
+    "channel": "Zee Ghanta",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-zee24ghanta-samsungin",
+      "Xiaomi": "amg01412-xiaomiasia-zee24ghantaa-xiaomi",
+      "LG": "amg02481-indiadotcomdigitalprivatelimitedfast-zee24ghanta-lgin"
+    }
+  },
+  {
+    "channel": "Zee 24 Taas",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-zee24taas-samsungin",
+      "Xiaomi": "amg01412-xiaomiasia-zeetaas-xiaomi",
+      "LG": "amg02481-indiadotcomdigitalprivatelimitedfast-zee24taas-lgin"
+    }
+  },
+  {
+    "channel": "NDTV India",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-ndtvindia-samsungin",
+      "Xiaomi": "amg01605-ndtv-ndtvindia-xiaomiin",
+      "LG": "amg01605-ndtvconvergence-ndtvindia-lgin"
+    }
+  },
+  {
+    "channel": "NDTV Profit",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-ndtvprofit-samsungin",
+      "Xiaomi": "amg01605-ndtv-ndtvprofit-xiaomiin",
+      "LG": "amg01605-ndtv-ndtvprofit-lgin"
+    }
+  },
+  {
+    "channel": "NDTV 24x7",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-ndtv24x7-samsungin",
+      "Xiaomi": "amg01605-ndtv-ndtv24x7-xiaomiin",
+      "LG": "amg01605-ndtvconvergence-ndtv24x7-lgin"
+    }
+  },
+  {
+    "channel": "CNBC TV 18",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-nw18cnbc-samsungin",
+      "Xiaomi": "amg00866-tv18broadcastlimitedfast-cnbctv18-xiaomiinternational",
+      "LG": "amg00866-tv18broadcastlimitedfast-cnbctv18-lgin"
+    }
+  },
+  {
+    "channel": "CNN News18",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-cnnnewsnw18-samsungin",
+      "Xiaomi": "amg00866-tv18broadcastlimitedfast-cnnnews18-xiaomiin",
+      "LG": "amg00866-tv18broadcastlimitedfast-cnnnews18-lgin"
+    }
+  },
+  {
+    "channel": "News18 Bangla",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-news18bangla-samsungin"
+    }
+  },
+  {
+    "channel": "News18 UP Uttarakhand",
+    "platforms": {
+      "Samsung": "amg00604-network18-news18uputtarakhand-samsungin",
+      "Xiaomi": "amg00866-tv18broadcastlimitedfast-news18uputtarakhand-xiaomiin",
+      "LG": "amg00866-tv18broadcastlimitedfast-news18uputtarakhand-lgin"
+    }
+  },
+  {
+    "channel": "India Today",
+    "platforms": {
+      "Samsung": "amg01448-samsungin-indiatoday-samsungin"
+    }
+  }
+]

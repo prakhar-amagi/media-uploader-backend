@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Forgot Password</title>
+
+<style>
+body{
+  margin:0;
+  font-family:Inter,Arial;
+  height:100vh;
+  background:#111827;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:white;
+}
+
+.card{
+  background:#1f2937;
+  padding:40px;
+  border-radius:16px;
+  width:360px;
+}
+
+input{
+  width:100%;
+  padding:12px;
+  margin-top:12px;
+  border-radius:8px;
+  border:none;
+  background:#111827;
+  color:white;
+}
+
+button{
+  width:100%;
+  margin-top:18px;
+  padding:12px;
+  border:none;
+  border-radius:10px;
+  background:#4f46e5;
+  color:white;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.msg{
+  margin-top:12px;
+  text-align:center;
+  color:#9ca3af;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h2>Forgot Password</h2>
+
+  <input id="email" placeholder="Enter your email">
+
+  <button onclick="sendReset()">Send Reset Link</button>
+
+  <div class="msg" id="msg"></div>
+</div>
+
+<script>
+async function sendReset(){
+  const email = document.getElementById("email").value.trim();
+
+  if(!email){
+    return alert("Enter email");
+  }
+
+  await fetch("/auth/forgot-password",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ email })
+  });
+
+  // ✅ Always same message (security)
+  document.getElementById("msg").innerText =
+    "If this email exists, a reset link has been sent.";
+}
+</script>
+
+</body>
+</html>

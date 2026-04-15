@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Admin Panel</title>
+
+<style>
+:root {
+  --primary: #4f46e5;
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+}
+
+body {
+  font-family: Inter, Arial, sans-serif;
+  background: var(--bg);
+  margin: 0;
+  padding: 40px;
+  color: var(--text);
+}
+
+.container {
+  max-width: 1100px;
+  margin: auto;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+}
+
+button {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+button.secondary { background: #9ca3af; }
+button.danger { background: #ef4444; }
+
+input, select {
+  padding: 8px;
+  margin-top: 6px;
+  width: 260px;
+}
+
+/* MODAL */
+.modal {
+  display:none;
+  position:fixed;
+  top:0;left:0;
+  width:100%;height:100%;
+  background:rgba(0,0,0,0.5);
+  align-items:center;
+  justify-content:center;
+}
+
+.modal-box {
+  background:white;
+  padding:25px;
+  border-radius:14px;
+  width:400px;
+  max-height:80vh;
+  overflow:auto;
+}
+
+.channelRow {
+  display:flex;
+  gap:10px;
+  padding:6px 0;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<!-- MENU -->
+<div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+  <button onclick="goToDashboard()" class="secondary">⬅ Dashboard</button>
+
+  <div style="position:relative;">
+    <button onclick="toggleUserMenu()" style="background:#111827;">
+      👤 Admin ▾
+    </button>
+
+    <div id="userMenu" style="display:none; position:absolute; top:40px; right:0; background:white; border:1px solid #e5e7eb; border-radius:10px; padding:10px;">
+      <button onclick="logout()" class="danger">Logout</button>
+    </div>
+  </div>
+</div>
+
+<!-- USERS -->
+<div class="card">
+  <h2>👥 Manage Users</h2>
+
+  <input id="newName" placeholder="Name">
+  <input id="newEmail" placeholder="Email">
+  <select id="newRole">
+    <option value="user">User</option>
+    <option value="admin">Admin</option>
+  </select>
+
+  <br><br>
+  <button onclick="createUser()">Create User</button>
+
+  <hr>
+  <div id="userList"></div>
+</div>
+
+<!-- CHANNELS -->
+<div class="card">
+  <h2>📺 Manage Channels</h2>
+
+  <input id="newChannel" placeholder="Channel name">
+  <input id="samsungId" placeholder="Samsung ID">
+  <input id="xiaomiId" placeholder="Xiaomi ID">
+  <input id="lgId" placeholder="LG ID">
+
+  <br><br>
+  <button onclick="createChannel()">Create Channel</button>
+
+  <hr>
+  <div id="channelList"></div>
+</div>
+
+</div>
+
+<script>
+const token = localStorage.getItem("token");
+const currentEmail = localStorage.getItem("email");
+
+if(!token || localStorage.getItem("role") !== "admin"){
+  window.location.href = "/login.html";
+}
+
+function authFetch(url, options = {}) {
+  options.headers = {
+    ...(options.headers || {}),
+    "Authorization": "Bearer " + token
+  };
+  return fetch(url, options);
+}
+
+/* MENU */
+function toggleUserMenu(){
+  const m = document.getElementById("userMenu");
+  m.style.display = m.style.display === "block" ? "none" : "block";
+}
+
+function logout(){
+  localStorage.clear();
+  location.href="/login.html";
+}
+
+function goToDashboard(){
+  window.location.href="/index.html";
+}
+
+/* STATE */
+let allChannels = [];
+let editingUser = null;
+let editingChannel = null;
+
+/* USERS */
+async function loadUsers(){
+  const res = await authFetch("/admin/users");
+  const users = await res.json();
+
+  const box = document.getElementById("userList");
+  box.innerHTML="";
+
+  users.forEach(u=>{
+    let actions = "";
+
+    if(u.email !== currentEmail){
+      actions += `<button class="danger" onclick="deleteUser('${u.email}')">Delete</button>`;
+    }
+
+    if(u.role !== "admin"){
+      actions += `<button onclick="openEditModal('${u.email}')">Edit</button>`;
+    }
+
+    box.innerHTML += `
+      <div style="display:flex; justify-content:space-between; padding:14px; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:12px;">
+        <div>
+          <strong>${u.name}</strong><br>
+          ${u.email}<br>
+          Role: ${u.role}<br>
+          Status: ${u.isActive ? "✅ Active" : "⏳ Pending"}
+        </div>
+        <div style="display:flex; gap:10px;">
+          ${actions}
+        </div>
+      </div>
+    `;
+  });
+}
+
+async function createUser(){
+  const name = newName.value.trim();
+  const email = newEmail.value.trim().toLowerCase();
+  const role = newRole.value;
+
+  if(!name || !email){
+    alert("Name and email required");
+    return;
+  }
+
+  const res = await authFetch("/admin/users",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ name, email, role })
+  });
+
+  if(!res.ok){
+    const data = await res.json();
+    alert(data.error || "Failed");
+    return;
+  }
+
+  newName.value="";
+  newEmail.value="";
+
+  alert("User created. Email sent.");
+  loadUsers();
+}
+
+async function deleteUser(email){
+  if(!confirm("Delete user?")) return;
+  await authFetch("/admin/users/" + email,{ method:"DELETE" });
+  loadUsers();
+}
+
+/* USER CHANNEL EDIT */
+async function openEditModal(email){
+  const res = await authFetch("/admin/users");
+  const users = await res.json();
+
+  editingUser = users.find(u => u.email === email);
+  const box = document.getElementById("channelOptions");
+  box.innerHTML="";
+
+  allChannels.forEach(c=>{
+    box.innerHTML += `
+      <label class="channelRow">
+        <input type="checkbox" value="${c}"
+        ${editingUser.channels?.includes(c) ? "checked" : ""}>
+        ${c}
+      </label>
+    `;
+  });
+
+  document.getElementById("editModal").style.display="flex";
+}
+
+function closeModal(){
+  document.getElementById("editModal").style.display="none";
+}
+
+async function saveChannels(){
+  const selected = [];
+  document.querySelectorAll("#channelOptions input:checked")
+    .forEach(cb => selected.push(cb.value));
+
+  await authFetch("/admin/users/" + editingUser.email,{
+    method:"PUT",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ channels:selected })
+  });
+
+  closeModal();
+  loadUsers();
+}
+
+/* CHANNELS */
+async function loadChannels(){
+  const res = await authFetch("/admin/channels");
+  const channels = await res.json();
+
+  allChannels = channels.map(c => c.channel);
+
+  const box = document.getElementById("channelList");
+  box.innerHTML="";
+
+  channels.forEach(c=>{
+    const platforms = c.platforms || {};
+
+    box.innerHTML += `
+      <div style="display:flex; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px;">
+        <div>
+          <strong>${c.channel}</strong><br>
+          <span style="font-size:13px; color:#6b7280;">
+            ${Object.keys(platforms).length
+              ? Object.entries(platforms).map(([p,id]) => `${p}: ${id}`).join("<br>")
+              : "No platform IDs added"}
+          </span>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button onclick="openChannelEditModal('${c.channel}')">Edit</button>
+          <button class="danger" onclick="deleteChannel('${c.channel}')">Delete</button>
+        </div>
+      </div>
+    `;
+  });
+
+  loadUsers();
+}
+
+async function createChannel(){
+  const name = newChannel.value.trim();
+  const samsung = samsungId.value.trim();
+  const xiaomi = xiaomiId.value.trim();
+  const lg = lgId.value.trim();
+
+  if(!name) return alert("Channel name required");
+
+  await authFetch("/admin/channels",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ channel:name, samsung, xiaomi, lg })
+  });
+
+  newChannel.value="";
+  samsungId.value="";
+  xiaomiId.value="";
+  lgId.value="";
+
+  loadChannels();
+}
+
+async function deleteChannel(name){
+  if(!confirm("Delete channel?")) return;
+  await authFetch("/admin/channels/" + name,{ method:"DELETE" });
+  loadChannels();
+}
+
+/* CHANNEL EDIT */
+async function openChannelEditModal(name){
+  const res = await authFetch("/admin/channels");
+  const channels = await res.json();
+
+  const channel = channels.find(c => c.channel === name);
+  editingChannel = name;
+
+  const platforms = channel.platforms || {};
+
+  editSamsung.value = platforms.Samsung || "";
+  editXiaomi.value = platforms.Xiaomi || "";
+  editLg.value = platforms.LG || "";
+
+  document.getElementById("channelEditModal").style.display="flex";
+}
+
+function closeChannelModal(){
+  document.getElementById("channelEditModal").style.display="none";
+}
+
+async function saveChannelEdit(){
+  await authFetch("/admin/channels/" + editingChannel,{
+    method:"PUT",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({
+      samsung: editSamsung.value.trim(),
+      xiaomi: editXiaomi.value.trim(),
+      lg: editLg.value.trim()
+    })
+  });
+
+  closeChannelModal();
+  loadChannels();
+}
+
+loadChannels();
+</script>
+
+<!-- USER CHANNEL MODAL -->
+<div id="editModal" class="modal">
+  <div class="modal-box">
+    <h3>Edit Channels</h3>
+    <div id="channelOptions"></div>
+
+    <div style="margin-top:15px;">
+      <button onclick="closeModal()">Cancel</button>
+      <button onclick="saveChannels()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHANNEL EDIT MODAL -->
+<div id="channelEditModal" class="modal">
+  <div class="modal-box">
+    <h3>Edit Channel</h3>
+
+    <input id="editSamsung" placeholder="Samsung ID">
+    <input id="editXiaomi" placeholder="Xiaomi ID">
+    <input id="editLg" placeholder="LG ID">
+
+    <div style="margin-top:15px;">
+      <button onclick="closeChannelModal()">Cancel</button>
+      <button onclick="saveChannelEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

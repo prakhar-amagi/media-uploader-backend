@@ -1,0 +1,64 @@
+[
+  {
+    "name": "Admin",
+    "email": "admin",
+    "password": "$2b$10$CwTycUXWue0Thq9StjUM0uJ8fK9wH0hZ1tcHTfb3e8DqRLVQjax9O",
+    "role": "admin",
+    "channels": [
+      "*"
+    ],
+    "isActive": true,
+    "resetToken": null,
+    "resetTokenExpiry": null
+  },
+  {
+    "name": "Zee",
+    "email": "zeeuser",
+    "password": "zee123",
+    "role": "user",
+    "channels": [
+      "Zee News",
+      "Zee Business",
+      "Zee Ghanta",
+      "Zee 24 Taas"
+    ]
+  },
+  {
+    "name": "NDTV",
+    "email": "ndtvuser",
+    "password": "ndtv123",
+    "role": "user",
+    "channels": [
+      "NDTV India",
+      "NDTV Profit",
+      "NDTV 24x7"
+    ]
+  },
+  {
+    "name": "Prakhar",
+    "email": "prakhar.raj.singh@amagi.com",
+    "password": "$2b$10$8i.Pf2VaXsBGl3cJeepS5eWtlo/AlmEn38SzuUA4odqy8YE.djSgm",
+    "role": "admin",
+    "channels": [
+      "*"
+    ],
+    "isActive": true,
+    "resetToken": null,
+    "resetTokenExpiry": null
+  },
+  {
+    "name": "Prakhar Test",
+    "email": "prakharraj805@gmail.com",
+    "password": "$2b$10$Nb6FtamqMtdYcmi3/z1iceNx48tyNh6Se93ghwB.bLGAnt4XRRuZa",
+    "role": "user",
+    "channels": [
+      "Zee News",
+      "Zee Business",
+      "Zee Ghanta",
+      "Zee 24 Taas"
+    ],
+    "isActive": true,
+    "resetToken": null,
+    "resetTokenExpiry": null
+  }
+]

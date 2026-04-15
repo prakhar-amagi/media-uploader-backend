@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Promo Manager</title>
+
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+    }
+
+    * {
+      box-sizing: border-box;
+      min-width: 0;
+    }
+
+    body {
+      font-family: Inter, Arial, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 40px;
+      color: var(--text);
+    }
+
+    h2 { margin-top: 0; }
+
+    .container {
+      max-width: 1100px;
+      margin: auto;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+    }
+
+    label { font-weight: 600; }
+
+    select, input[type="file"] {
+      margin-top: 6px;
+      padding: 8px;
+      width: 260px;
+    }
+
+    button {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover { opacity: 0.9; }
+    button.secondary { background: #9ca3af; }
+
+    video {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      border-radius: 10px;
+      margin-top: 6px;
+      display: block;
+    }
+
+    progress {
+      width: 300px;
+      height: 10px;
+    }
+
+    #platforms label {
+      display: inline-flex;
+      align-items: center;
+      margin-right: 16px;
+      margin-top: 8px;
+      font-weight: 500;
+      gap: 6px;
+    }
+
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 24px;
+      margin-top: 20px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 1100px) {
+      .platform-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 700px) {
+      .platform-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .platform-column {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      background: #fafafa;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .platform-column h3 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+
+    .promo-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .promo-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      word-break: break-all;
+    }
+
+    .promo-card button {
+      margin-top: 8px;
+      background: #ef4444;
+    }
+
+    .status {
+      margin-top: 8px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="container">
+
+<!-- 👤 User Menu -->
+<div style="display:flex; justify-content:flex-end; margin-bottom:16px; position:relative;">
+  <button onclick="toggleUserMenu()" style="background:#111827;">
+    👤 User ▾
+  </button>
+
+  <div id="userMenu" style="
+      display:none;
+      position:absolute;
+      top:40px;
+      right:0;
+      background:white;
+      border:1px solid #e5e7eb;
+      border-radius:10px;
+      box-shadow:0 10px 25px rgba(0,0,0,0.08);
+      padding:10px;
+      min-width:160px;
+      z-index:100;
+  ">
+    <div id="adminOption" style="display:none; margin-bottom:8px;">
+      <button onclick="goToAdmin()" style="width:100%;">⚙ Admin Panel</button>
+    </div>
+    <button onclick="logout()" style="background:#ef4444; width:100%;">
+      🚪 Logout
+    </button>
+  </div>
+</div>
+
+
+  <div class="card">
+    <h2>📤 Upload Promo</h2>
+
+    <label>Channel</label><br>
+    <select id="channelSelect" onchange="loadPlatforms()"></select>
+
+    <div id="platforms"></div>
+
+    <br>
+    <input type="file" id="fileInput" accept="video/mp4" multiple><br><br>
+
+    <button onclick="uploadPromo()">Upload</button>
+    <button class="secondary" onclick="cancelUpload()">Cancel</button>
+
+    <br><br>
+    <progress id="progressBar" max="100" value="0"></progress>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>📃 Existing Promos</h2>
+    <button onclick="loadPromos()">Load Promos</button>
+    <div id="promoList"></div>
+  </div>
+
+</div>
+
+<script>
+
+function goToAdmin() {
+  window.location.href = "/admin.html";
+}
+
+
+/* 🔐 AUTH CHECK */
+const token = localStorage.getItem("token");
+if(!token){
+  window.location.href="/login.html";
+}
+
+/* 🔐 AUTH FETCH (GLOBAL) */
+function authFetch(url, options = {}) {
+  const token = localStorage.getItem("token");
+
+  options.headers = {
+    ...(options.headers || {}),
+    "Authorization": "Bearer " + token
+  };
+
+  return fetch(url, options);
+}
+
+function logout(){
+  localStorage.removeItem("token");
+  location.href="/login.html";
+}
+
+function toggleUserMenu() {
+  const menu = document.getElementById("userMenu");
+  menu.style.display = menu.style.display === "block" ? "none" : "block";
+}
+
+// Close dropdown when clicking outside
+document.addEventListener("click", function(e) {
+  const menu = document.getElementById("userMenu");
+  if (!e.target.closest("#userMenu") && !e.target.closest("button")) {
+    menu.style.display = "none";
+  }
+});
+
+// Show admin option only for admin role
+if (localStorage.getItem("role") === "admin") {
+  document.getElementById("adminOption").style.display = "block";
+}
+
+let currentXHR = null;
+
+const channelSelect = document.getElementById("channelSelect");
+const platformsBox = document.getElementById("platforms");
+const promoList = document.getElementById("promoList");
+const statusEl = document.getElementById("status");
+const progressBar = document.getElementById("progressBar");
+const fileInput = document.getElementById("fileInput");
+
+/* ---------- Load channels ---------- */
+async function loadChannels() {
+  const res = await authFetch("/channels");
+  const channels = await res.json();
+
+  channelSelect.innerHTML = "";
+
+  channels.forEach(channelName => {
+    const opt = document.createElement("option");
+    opt.value = channelName;
+    opt.textContent = channelName;
+    channelSelect.appendChild(opt);
+  });
+
+  if (channels.length) loadPlatforms();
+}
+
+/* ---------- Load platforms ---------- */
+async function loadPlatforms() {
+  platformsBox.innerHTML = "Loading platforms...";
+
+  const channelName = channelSelect.value;
+  if (!channelName) {
+    platformsBox.innerHTML = "";
+    return;
+  }
+
+  try {
+    const res = await authFetch(`/channels/${encodeURIComponent(channelName)}`);
+
+    if (!res.ok) {
+      platformsBox.innerHTML = "❌ Failed to load platforms";
+      return;
+    }
+
+    const platforms = await res.json();
+
+    if (!platforms || platforms.length === 0) {
+      platformsBox.innerHTML = "⚠️ No platforms available";
+      return;
+    }
+
+    platformsBox.innerHTML = "";
+
+    platforms.forEach(p => {
+      const label = document.createElement("label");
+      label.innerHTML = `
+        <input type="checkbox" value="${p}" checked>
+        ${p}
+      `;
+      platformsBox.appendChild(label);
+    });
+
+  } catch (err) {
+    console.error(err);
+    platformsBox.innerHTML = "❌ Platform load error";
+  }
+}
+
+function getSelectedPlatforms() {
+  return [...document.querySelectorAll("#platforms input:checked")]
+    .map(i => i.value);
+}
+
+/* ---------- MULTI Upload ---------- */
+async function uploadPromo() {
+  const files = fileInput.files;
+  const platforms = getSelectedPlatforms();
+
+  if (!files.length || !platforms.length) {
+    alert("Select file & platforms");
+    return;
+  }
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    statusEl.textContent = `Uploading ${i+1}/${files.length}: ${file.name}`;
+
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("channelName", channelSelect.value);
+    fd.append("platforms", JSON.stringify(platforms));
+
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      currentXHR = xhr;
+
+      xhr.open("POST", "/upload");
+
+      /* 🔐 ADD TOKEN */
+      xhr.setRequestHeader(
+        "Authorization",
+        "Bearer " + localStorage.getItem("token")
+      );
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          progressBar.value = (e.loaded / e.total) * 100;
+        }
+      };
+
+      xhr.onload = () => {
+        progressBar.value = 0;
+
+        if (xhr.status === 401) {
+          alert("Session expired. Login again.");
+          logout();
+          return;
+        }
+
+        resolve();
+      };
+
+      xhr.onerror = () => {
+        statusEl.textContent = "❌ Upload failed";
+        progressBar.value = 0;
+        reject();
+      };
+
+      xhr.send(fd);
+    });
+  }
+
+  currentXHR = null;
+  statusEl.textContent = "✅ All uploads complete";
+  fileInput.value = "";
+  loadPromos();
+}
+
+function cancelUpload() {
+  currentXHR?.abort();
+  progressBar.value = 0;
+  statusEl.textContent = "❌ Upload cancelled";
+}
+
+/* ---------- Load promos ---------- */
+async function loadPromos() {
+  promoList.innerHTML = "";
+
+  const platforms = getSelectedPlatforms();
+  if (!platforms.length) {
+    promoList.innerHTML = "<p>Select platform</p>";
+    return;
+  }
+
+  const q = new URLSearchParams({
+    channelName: channelSelect.value,
+    platforms: JSON.stringify(platforms)
+  });
+
+  const res = await authFetch(`/promos?${q}`);
+
+  if (res.status === 401) {
+    alert("Session expired. Login again.");
+    logout();
+    return;
+  }
+
+  const data = await res.json();
+
+  const grid = document.createElement("div");
+  grid.className = "platform-grid";
+
+  Object.entries(data).forEach(([platform, urls]) => {
+    const column = document.createElement("div");
+    column.className = "platform-column";
+    column.innerHTML = `<h3>📺 ${platform}</h3>`;
+
+    if (!urls.length) {
+      column.innerHTML += "<p>No promos</p>";
+    } else {
+      urls.forEach(url => {
+        const filename = url.split("/").pop();
+        column.innerHTML += `
+          <div class="promo-card">
+            <strong>${filename}</strong>
+            <video src="${url}" controls muted></video>
+            <button onclick="deletePromo('${url}')">🗑 Delete</button>
+          </div>
+        `;
+      });
+    }
+
+    grid.appendChild(column);
+  });
+
+  promoList.appendChild(grid);
+}
+
+/* ---------- Delete promo ---------- */
+async function deletePromo(url) {
+  const filename = url.split("/").pop();
+  const platformList = getSelectedPlatforms().join(", ");
+
+  const confirmed = confirm(
+    `Delete this promo?\n\nFile: ${filename}\nPlatforms: ${platformList}`
+  );
+
+  if (!confirmed) return;
+
+  const res = await authFetch("/promos", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      channelName: channelSelect.value,
+      platforms: getSelectedPlatforms(),
+      url
+    })
+  });
+
+  if (res.status === 401) {
+    alert("Session expired. Login again.");
+    logout();
+    return;
+  }
+
+  loadPromos();
+}
+
+loadChannels();
+</script>
+
+</body>
+</html>
