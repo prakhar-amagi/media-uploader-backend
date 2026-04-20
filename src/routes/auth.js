@@ -1,26 +1,19 @@
 import express from "express";
-import fs from "fs";
-import path from "path";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { fileURLToPath } from "url";
+
 import { generateToken } from "../utils/auth.js";
 import { sendEmail } from "../utils/email.js";
 
+import User from "../models/User.js";
+
 const router = express.Router();
-
-/* Fix __dirname */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const USERS_PATH = path.join(__dirname, "../data/users.json");
 
 /* ---------- LOGIN ---------- */
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const users = JSON.parse(fs.readFileSync(USERS_PATH, "utf-8"));
-  const user = users.find(u => u.email === email);
+  const user = await User.findOne({ email });
 
   if (!user) {
     return res.status(400).json({ error: "User not found" });
@@ -50,23 +43,21 @@ router.post("/login", async (req, res) => {
 router.post("/set-password", async (req, res) => {
   const { token, password } = req.body;
 
-  const users = JSON.parse(fs.readFileSync(USERS_PATH, "utf-8"));
-
-  const user = users.find(
-    u => u.resetToken === token &&
-    u.resetTokenExpiry > Date.now()
-  );
+  const user = await User.findOne({
+    resetToken: token,
+    resetTokenExpiry: { $gt: Date.now() }
+  });
 
   if (!user) {
     return res.status(400).json({ error: "Invalid or expired token" });
   }
 
   user.password = await bcrypt.hash(password, 10);
-  user.isActive = true; // ✅ important for activation
+  user.isActive = true;
   user.resetToken = null;
   user.resetTokenExpiry = null;
 
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+  await user.save();
 
   res.json({ success: true });
 });
@@ -75,9 +66,9 @@ router.post("/set-password", async (req, res) => {
 router.post("/forgot-password", async (req, res) => {
   const { email } = req.body;
 
-  const users = JSON.parse(fs.readFileSync(USERS_PATH, "utf-8"));
-  const user = users.find(u => u.email === email);
+  const user = await User.findOne({ email });
 
+  // silent response (security best practice)
   if (!user) return res.json({ success: true });
 
   const token = crypto.randomBytes(32).toString("hex");
@@ -85,14 +76,17 @@ router.post("/forgot-password", async (req, res) => {
   user.resetToken = token;
   user.resetTokenExpiry = Date.now() + 1000 * 60 * 60;
 
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+  await user.save();
 
-  const link = `https://promo-manager-tool.onrender.com/reset-password.html?token=${token}`;
 
-  await sendEmail(email, "Reset Password", `
-    <p>Click below to reset your password:</p>
-    <a href="${link}">Reset Password</a>
-  `);
+  const link = `${process.env.BASE_URL}/reset-password.html?token=${token}`;
+
+  await sendEmail(
+    email,
+    "Reset Password",
+    `<p>Click below to reset your password:</p>
+     <a href="${link}">Reset Password</a>`
+  );
 
   res.json({ success: true });
 });
@@ -101,12 +95,10 @@ router.post("/forgot-password", async (req, res) => {
 router.post("/reset-password", async (req, res) => {
   const { token, password } = req.body;
 
-  const users = JSON.parse(fs.readFileSync(USERS_PATH, "utf-8"));
-
-  const user = users.find(
-    u => u.resetToken === token &&
-    u.resetTokenExpiry > Date.now()
-  );
+  const user = await User.findOne({
+    resetToken: token,
+    resetTokenExpiry: { $gt: Date.now() }
+  });
 
   if (!user) {
     return res.status(400).json({ error: "Invalid or expired token" });
@@ -116,7 +108,7 @@ router.post("/reset-password", async (req, res) => {
   user.resetToken = null;
   user.resetTokenExpiry = null;
 
-  fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
+  await user.save();
 
   res.json({ success: true });
 });
