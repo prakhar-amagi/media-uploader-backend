@@ -26,36 +26,42 @@ router.get("/", async (req, res) => {
 /* ---------------- GET PLATFORMS FOR A CHANNEL ---------------- */
 router.get("/:channelName", async (req, res) => {
   try {
-    // ✅ Fix 1: decode URL (handles spaces like Zee%20News)
-    const channelName = decodeURIComponent(req.params.channelName).trim();
+    console.log("---- REQUEST START ----");
 
-    // 🔐 Fix 2: safer access control (case-insensitive)
+    const raw = req.params.channelName;
+    const channelName = decodeURIComponent(raw).trim();
+
+    console.log("RAW PARAM:", raw);
+    console.log("DECODED:", channelName);
+
+    console.log("USER:", req.user);
+
     if (req.user.role !== "admin") {
-      const allowedChannels = (req.user.channels || []).map(c =>
-        c.trim().toLowerCase()
-      );
+      console.log("USER CHANNELS:", req.user.channels);
 
-      if (!allowedChannels.includes(channelName.toLowerCase())) {
+      if (!req.user.channels.includes(channelName)) {
+        console.log("ACCESS DENIED");
         return res.status(403).json({ error: "No access to this channel" });
       }
     }
 
-    // ✅ Fix 3: case-insensitive DB search
-    const channel = await Channel.findOne({
-      channel: { $regex: `^${channelName}$`, $options: "i" }
-    });
+    const channel = await Channel.findOne({ channel: channelName });
+
+    console.log("DB RESULT:", channel);
 
     if (!channel) {
       return res.status(404).json({ error: "Channel not found" });
     }
 
-    // ✅ Always return safe object
-    res.json(channel.platforms || {});
+    console.log("PLATFORMS:", channel.platforms);
+
+    res.json(channel.platforms);
 
   } catch (err) {
-    console.error("Platform load error:", err);
-    res.status(500).json({ error: "Platform load error" });
+    console.error("Platform load error FULL:", err);
+    res.status(500).json({ error: err.message });
   }
 });
+
 
 export default router;
