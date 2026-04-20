@@ -1,12 +1,13 @@
 import express from "express";
-import fs from "fs";
-import path from "path";
 import crypto from "crypto";
 import { requireAuth } from "../middleware/authMiddleware.js";
-import { getChannelObjects, addChannel, deleteChannel } from "../utils/channelMap.js";
 import { sendEmail } from "../utils/email.js";
 
+import User from "../models/User.js";
+import Channel from "../models/Channel.js";
+
 const router = express.Router();
+
 router.use(requireAuth);
 
 /* ---------- ADMIN ONLY ---------- */
@@ -19,38 +20,30 @@ function requireAdmin(req, res, next) {
 
 router.use(requireAdmin);
 
-const USERS_FILE = path.join(process.cwd(), "src/data/users.json");
-
 /* ================= USERS ================= */
 
 /* -------- GET ALL USERS -------- */
-router.get("/users", (req, res) => {
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-
-  const safeUsers = users.map(({ password, resetToken, resetTokenExpiry, ...rest }) => rest);
-
-  res.json(safeUsers);
+router.get("/users", async (req, res) => {
+  const users = await User.find().select("-password -resetToken -resetTokenExpiry");
+  res.json(users);
 });
 
-/* -------- CREATE USER (UPDATED) -------- */
+/* -------- CREATE USER -------- */
 router.post("/users", async (req, res) => {
   const { name, email, role } = req.body;
 
-  // ✅ FIXED VALIDATION
   if (!name || !email) {
     return res.status(400).json({ error: "Name and email required" });
   }
 
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-
-  if (users.find(u => u.email === email)) {
+  const existing = await User.findOne({ email });
+  if (existing) {
     return res.status(400).json({ error: "User already exists" });
   }
 
-  // 🔐 Generate token
   const token = crypto.randomBytes(32).toString("hex");
 
-  const newUser = {
+  const user = new User({
     name,
     email,
     password: null,
@@ -58,14 +51,14 @@ router.post("/users", async (req, res) => {
     channels: [],
     isActive: false,
     resetToken: token,
-    resetTokenExpiry: Date.now() + 1000 * 60 * 60 // 1 hour
-  };
+    resetTokenExpiry: Date.now() + 1000 * 60 * 60
+  });
 
-  users.push(newUser);
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  await user.save();
 
   try {
-    const link = `https://promo-manager-tool.onrender.com/set-password.html?token=${token}`;
+
+    const link = `${process.env.BASE_URL}/set-password.html?token=${token}`;
 
     await sendEmail(
       email,
@@ -77,65 +70,56 @@ router.post("/users", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error("Email error:", err);
     res.status(500).json({ error: "User created but email failed" });
   }
 });
 
 /* -------- UPDATE USER CHANNELS -------- */
-router.put("/users/:email", (req, res) => {
+router.put("/users/:email", async (req, res) => {
   const { email } = req.params;
   const { channels } = req.body;
 
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  const userIndex = users.findIndex(u => u.email === email);
+  const user = await User.findOne({ email });
 
-  if (userIndex === -1) {
-    return res.status(404).json({ error: "User not found" });
-  }
+  if (!user) return res.status(404).json({ error: "User not found" });
 
-  if (users[userIndex].role === "admin") {
+  if (user.role === "admin") {
     return res.status(400).json({ error: "Cannot modify admin channels" });
   }
 
-  users[userIndex].channels = channels || [];
-
-  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  user.channels = channels || [];
+  await user.save();
 
   res.json({ success: true });
 });
 
 /* -------- DELETE USER -------- */
-router.delete("/users/:email", (req, res) => {
+router.delete("/users/:email", async (req, res) => {
   const { email } = req.params;
 
-  const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  const user = users.find(u => u.email === email);
+  const user = await User.findOne({ email });
 
-  if (!user) {
-    return res.status(404).json({ error: "User not found" });
-  }
+  if (!user) return res.status(404).json({ error: "User not found" });
 
   if (user.role === "admin") {
     return res.status(400).json({ error: "Cannot delete admin user" });
   }
 
-  const updatedUsers = users.filter(u => u.email !== email);
-
-  fs.writeFileSync(USERS_FILE, JSON.stringify(updatedUsers, null, 2));
+  await User.deleteOne({ email });
 
   res.json({ success: true });
 });
 
 /* ================= CHANNELS ================= */
 
-/* -------- GET ALL CHANNELS -------- */
-router.get("/channels", (req, res) => {
-  res.json(getChannelObjects());
+/* -------- GET CHANNELS -------- */
+router.get("/channels", async (req, res) => {
+  const channels = await Channel.find();
+  res.json(channels);
 });
 
 /* -------- ADD CHANNEL -------- */
-router.post("/channels", (req, res) => {
+router.post("/channels", async (req, res) => {
   const { channel, samsung, xiaomi, lg } = req.body;
 
   if (!channel) {
@@ -143,7 +127,7 @@ router.post("/channels", (req, res) => {
   }
 
   try {
-    addChannel({
+    const newChannel = new Channel({
       channel,
       platforms: {
         ...(samsung && { Samsung: samsung }),
@@ -152,59 +136,56 @@ router.post("/channels", (req, res) => {
       }
     });
 
+    await newChannel.save();
+
     res.json({ success: true });
 
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: "Channel already exists" });
   }
 });
 
 /* -------- UPDATE CHANNEL -------- */
-router.put("/channels/:name", (req, res) => {
+router.put("/channels/:name", async (req, res) => {
   const { name } = req.params;
   const { samsung, xiaomi, lg } = req.body;
 
-  const channels = getChannelObjects();
-  const index = channels.findIndex(c => c.channel === name);
+  const channel = await Channel.findOne({ channel: name });
 
-  if (index === -1) {
+  if (!channel) {
     return res.status(404).json({ error: "Channel not found" });
   }
 
-  channels[index].platforms = {
+  channel.platforms = {
     ...(samsung && { Samsung: samsung }),
     ...(xiaomi && { Xiaomi: xiaomi }),
     ...(lg && { LG: lg })
   };
 
-  fs.writeFileSync(
-    path.join(process.cwd(), "src/data/channels.json"),
-    JSON.stringify(channels, null, 2)
-  );
+  await channel.save();
 
   res.json({ success: true });
 });
 
 /* -------- DELETE CHANNEL -------- */
-router.delete("/channels/:name", (req, res) => {
+router.delete("/channels/:name", async (req, res) => {
   const { name } = req.params;
 
-  try {
-    deleteChannel(name);
+  const channel = await Channel.findOne({ channel: name });
 
-    const users = JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-
-    users.forEach(user => {
-      user.channels = user.channels.filter(c => c !== name);
-    });
-
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-
-    res.json({ success: true });
-
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+  if (!channel) {
+    return res.status(404).json({ error: "Channel not found" });
   }
+
+  await Channel.deleteOne({ channel: name });
+
+  // remove from users
+  await User.updateMany(
+    {},
+    { $pull: { channels: name } }
+  );
+
+  res.json({ success: true });
 });
 
 export default router;
