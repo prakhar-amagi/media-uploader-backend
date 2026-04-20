@@ -26,22 +26,31 @@ router.get("/", async (req, res) => {
 /* ---------------- GET PLATFORMS FOR A CHANNEL ---------------- */
 router.get("/:channelName", async (req, res) => {
   try {
-    const channelName = req.params.channelName;
+    // ✅ Fix 1: decode URL (handles spaces like Zee%20News)
+    const channelName = decodeURIComponent(req.params.channelName).trim();
 
-    // 🔐 Access control
+    // 🔐 Fix 2: safer access control (case-insensitive)
     if (req.user.role !== "admin") {
-      if (!req.user.channels.includes(channelName)) {
+      const allowedChannels = (req.user.channels || []).map(c =>
+        c.trim().toLowerCase()
+      );
+
+      if (!allowedChannels.includes(channelName.toLowerCase())) {
         return res.status(403).json({ error: "No access to this channel" });
       }
     }
 
-    const channel = await Channel.findOne({ channel: channelName });
+    // ✅ Fix 3: case-insensitive DB search
+    const channel = await Channel.findOne({
+      channel: { $regex: `^${channelName}$`, $options: "i" }
+    });
 
     if (!channel) {
       return res.status(404).json({ error: "Channel not found" });
     }
 
-    res.json(channel.platforms);
+    // ✅ Always return safe object
+    res.json(channel.platforms || {});
 
   } catch (err) {
     console.error("Platform load error:", err);
