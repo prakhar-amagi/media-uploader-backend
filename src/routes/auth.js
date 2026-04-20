@@ -87,7 +87,7 @@ router.post("/forgot-password", async (req, res) => {
 
   fs.writeFileSync(USERS_PATH, JSON.stringify(users, null, 2));
 
-  const link = `http://localhost:3000/reset-password.html?token=${token}`;
+  const link = `https://promo-manager-tool.onrender.com/reset-password.html?token=${token}`;
 
   await sendEmail(email, "Reset Password", `
     <p>Click below to reset your password:</p>
