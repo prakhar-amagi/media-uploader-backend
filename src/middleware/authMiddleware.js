@@ -16,7 +16,6 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: "Invalid token" });
     }
 
-    // 🔥 FETCH FROM MONGODB
     const user = await User.findOne({ email: decoded.email });
 
     if (!user) {
@@ -27,6 +26,7 @@ export async function requireAuth(req, res, next) {
     next();
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Auth error:", err);
+    res.status(500).json({ error: "Auth failed" });
   }
 }

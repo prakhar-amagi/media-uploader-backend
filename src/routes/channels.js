@@ -15,23 +15,20 @@ router.get("/", async (req, res) => {
     }
 
     // user → only allowed channels
-    const allowed = channels
-      .filter(c => req.user.channels.includes(c.channel))
-      .map(c => c.channel);
-
-    res.json(allowed);
+    return res.json(req.user.channels || []);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Channel fetch error:", err);
+    res.status(500).json({ error: "Failed to load channels" });
   }
 });
 
 /* ---------------- GET PLATFORMS FOR A CHANNEL ---------------- */
 router.get("/:channelName", async (req, res) => {
-  const { channelName } = req.params;
-
   try {
-    // 🔐 ACCESS CONTROL
+    const channelName = req.params.channelName;
+
+    // 🔐 Access control
     if (req.user.role !== "admin") {
       if (!req.user.channels.includes(channelName)) {
         return res.status(403).json({ error: "No access to this channel" });
@@ -47,7 +44,8 @@ router.get("/:channelName", async (req, res) => {
     res.json(channel.platforms);
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Platform load error:", err);
+    res.status(500).json({ error: "Platform load error" });
   }
 });
 
