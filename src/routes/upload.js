@@ -1,12 +1,18 @@
-import { requireAuth } from "../middleware/authMiddleware.js";
 import express from "express";
 import multer from "multer";
 import fs from "fs";
-import { resolveChannelIds } from "../utils/channelMap.js";
+
+import { requireAuth } from "../middleware/authMiddleware.js";
 import { sanitizeFilename } from "../utils/filename.js";
 import { uploadToS3 } from "../s3.js";
 import { getPromos, putPromos } from "../stormforge.js";
+import Channel from "../models/Channel.js";
 
+const upload = multer({ dest: "/tmp" });
+const router = express.Router();
+router.use(requireAuth);
+
+/* helper */
 function ensureFillerConfig(data) {
   if (!data.ssai_configuration) {
     data.ssai_configuration = {};
@@ -27,44 +33,59 @@ function ensureFillerConfig(data) {
 
   return data;
 }
-const upload = multer({ dest: "/tmp" });
-const router = express.Router();
-router.use(requireAuth);
 
+/* UPLOAD */
 router.post("/", upload.single("file"), async (req, res) => {
   try {
     const { channelName, platforms } = req.body;
+
     if (!channelName || !platforms) {
       return res.status(400).json({ error: "channelName & platforms required" });
     }
 
     const platformList = JSON.parse(platforms);
-    const channelIds = resolveChannelIds(channelName, platformList);
+
+    const channel = await Channel.findOne({ channel: channelName });
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
 
     const filename = sanitizeFilename(req.file.originalname);
     const cfUrl = await uploadToS3(req.file.path, filename);
 
-    for (const channelId of channelIds) {
-  let data = await getPromos(channelId);
+    const deliveries = [];
 
-  if (!data) continue;
+    for (const platform of platformList) {
+      const channelId = channel.platforms.get(platform);
+      if (!channelId) continue;
 
-  data = ensureFillerConfig(data);
+      let data = await getPromos(channelId);
+      if (!data) continue;
 
-  let urls = data.ssai_configuration.filler_config.url;
+      data = ensureFillerConfig(data);
 
-  if (!urls.includes(cfUrl)) {
-    urls.unshift(cfUrl);
-    data.ssai_configuration.filler_config.url = urls;
+      let urls = data.ssai_configuration.filler_config.url;
 
-    await putPromos(channelId, data);
-  }
-}
+      if (!urls.includes(cfUrl)) {
+        urls.unshift(cfUrl);
+        data.ssai_configuration.filler_config.url = urls;
+
+        await putPromos(channelId, data);
+      }
+
+      deliveries.push(channelId);
+    }
 
     fs.unlinkSync(req.file.path);
-    res.json({ success: true, url: cfUrl, deliveries: channelIds });
+
+    res.json({
+      success: true,
+      url: cfUrl,
+      deliveries
+    });
 
   } catch (err) {
+    console.error("Upload error:", err);
     res.status(500).json({ error: err.message });
   }
 });

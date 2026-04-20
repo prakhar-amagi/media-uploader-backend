@@ -1,30 +1,31 @@
-import { requireAuth } from "../middleware/authMiddleware.js";
 import express from "express";
+import { requireAuth } from "../middleware/authMiddleware.js";
 import { getPromos, putPromos } from "../stormforge.js";
-import { resolveChannelIds } from "../utils/channelMap.js";
+import Channel from "../models/Channel.js";
 
 const router = express.Router();
 router.use(requireAuth);
 
-/**
- * GET /promos?channelName=...
- * UI-safe: only returns promo URLs
- */
+/* GET PROMOS */
 router.get("/", async (req, res) => {
   try {
     const { channelName, platforms } = req.query;
+
     if (!channelName || !platforms) {
       return res.status(400).json({ error: "channelName & platforms required" });
     }
 
     const platformList = JSON.parse(platforms);
-    const channel = channelName;
+
+    const channel = await Channel.findOne({ channel: channelName });
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
 
     const result = {};
 
     for (const platform of platformList) {
-      const channelIds = resolveChannelIds(channel, [platform]);
-      const channelId = channelIds[0];
+      const channelId = channel.platforms.get(platform);
 
       if (!channelId) {
         result[platform] = [];
@@ -32,6 +33,7 @@ router.get("/", async (req, res) => {
       }
 
       const data = await getPromos(channelId);
+
       const urls =
         data?.ssai_configuration?.filler_config?.url || [];
 
@@ -39,15 +41,14 @@ router.get("/", async (req, res) => {
     }
 
     res.json(result);
+
   } catch (err) {
+    console.error("Promo fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * DELETE /promos
- * Removes a single promo URL
- */
+/* DELETE PROMO */
 router.delete("/", async (req, res) => {
   try {
     const { channelName, platforms, url } = req.body;
@@ -56,21 +57,31 @@ router.delete("/", async (req, res) => {
       return res.status(400).json({ error: "channelName, platforms & url required" });
     }
 
-    const platformList = platforms;
-    const channelIds = resolveChannelIds(channelName, platformList);
+    const channel = await Channel.findOne({ channel: channelName });
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
 
-    for (const channelId of channelIds) {
+    for (const platform of platforms) {
+      const channelId = channel.platforms.get(platform);
+      if (!channelId) continue;
+
       const data = await getPromos(channelId);
-      if (!data.ssai_configuration) continue;
-      if (!data.ssai_configuration.filler_config) continue;
+
+      if (!data?.ssai_configuration?.filler_config) continue;
+
       const urls = data.ssai_configuration.filler_config.url || [];
+
       data.ssai_configuration.filler_config.url =
         urls.filter(u => u !== url);
+
       await putPromos(channelId, data);
     }
 
     res.json({ success: true });
+
   } catch (err) {
+    console.error("Delete promo error:", err);
     res.status(500).json({ error: err.message });
   }
 });
