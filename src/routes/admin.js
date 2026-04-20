@@ -65,7 +65,7 @@ router.post("/users", async (req, res) => {
   fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 
   try {
-    const link = `http://localhost:3000/set-password.html?token=${token}`;
+    const link = `https://promo-manager-tool.onrender.com/set-password.html?token=${token}`;
 
     await sendEmail(
       email,
