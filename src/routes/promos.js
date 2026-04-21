@@ -18,6 +18,7 @@ router.get("/", async (req, res) => {
     const platformList = JSON.parse(platforms);
 
     const channel = await Channel.findOne({ channel: channelName });
+
     if (!channel) {
       return res.status(404).json({ error: "Channel not found" });
     }
@@ -25,7 +26,8 @@ router.get("/", async (req, res) => {
     const result = {};
 
     for (const platform of platformList) {
-      const channelId = channel.platforms.get(platform);
+      // ✅ FIX HERE
+      const channelId = channel.platforms[platform];
 
       if (!channelId) {
         result[platform] = [];
@@ -54,16 +56,21 @@ router.delete("/", async (req, res) => {
     const { channelName, platforms, url } = req.body;
 
     if (!channelName || !platforms || !url) {
-      return res.status(400).json({ error: "channelName, platforms & url required" });
+      return res.status(400).json({
+        error: "channelName, platforms & url required"
+      });
     }
 
     const channel = await Channel.findOne({ channel: channelName });
+
     if (!channel) {
       return res.status(404).json({ error: "Channel not found" });
     }
 
     for (const platform of platforms) {
-      const channelId = channel.platforms.get(platform);
+      // ✅ FIX HERE
+      const channelId = channel.platforms[platform];
+
       if (!channelId) continue;
 
       const data = await getPromos(channelId);
