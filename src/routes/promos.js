@@ -2,6 +2,7 @@ import express from "express";
 import { requireAuth } from "../middleware/authMiddleware.js";
 import { getPromos, putPromos } from "../stormforge.js";
 import Channel from "../models/Channel.js";
+import Log from "../models/Log.js";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -11,22 +12,12 @@ router.get("/", async (req, res) => {
   try {
     const { channelName, platforms } = req.query;
 
-    if (!channelName || !platforms) {
-      return res.status(400).json({ error: "channelName & platforms required" });
-    }
-
     const platformList = JSON.parse(platforms);
-
     const channel = await Channel.findOne({ channel: channelName });
-
-    if (!channel) {
-      return res.status(404).json({ error: "Channel not found" });
-    }
 
     const result = {};
 
     for (const platform of platformList) {
-      // ✅ FIX HERE
       const channelId = channel.platforms[platform];
 
       if (!channelId) {
@@ -35,17 +26,12 @@ router.get("/", async (req, res) => {
       }
 
       const data = await getPromos(channelId);
-
-      const urls =
-        data?.ssai_configuration?.filler_config?.url || [];
-
-      result[platform] = urls;
+      result[platform] = data?.ssai_configuration?.filler_config?.url || [];
     }
 
     res.json(result);
 
   } catch (err) {
-    console.error("Promo fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -55,26 +41,13 @@ router.delete("/", async (req, res) => {
   try {
     const { channelName, platforms, url } = req.body;
 
-    if (!channelName || !platforms || !url) {
-      return res.status(400).json({
-        error: "channelName, platforms & url required"
-      });
-    }
-
     const channel = await Channel.findOne({ channel: channelName });
 
-    if (!channel) {
-      return res.status(404).json({ error: "Channel not found" });
-    }
-
     for (const platform of platforms) {
-      // ✅ FIX HERE
       const channelId = channel.platforms[platform];
-
       if (!channelId) continue;
 
       const data = await getPromos(channelId);
-
       if (!data?.ssai_configuration?.filler_config) continue;
 
       const urls = data.ssai_configuration.filler_config.url || [];
@@ -85,10 +58,16 @@ router.delete("/", async (req, res) => {
       await putPromos(channelId, data);
     }
 
+    await Log.create({
+      action: "PROMO_DELETE",
+      userEmail: req.user.email,
+      channel: channelName,
+      details: { platforms, url }
+    });
+
     res.json({ success: true });
 
   } catch (err) {
-    console.error("Delete promo error:", err);
     res.status(500).json({ error: err.message });
   }
 });

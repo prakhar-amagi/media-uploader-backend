@@ -5,9 +5,9 @@ import { sendEmail } from "../utils/email.js";
 
 import User from "../models/User.js";
 import Channel from "../models/Channel.js";
+import Log from "../models/Log.js";
 
 const router = express.Router();
-
 router.use(requireAuth);
 
 /* ---------- ADMIN ONLY ---------- */
@@ -17,18 +17,27 @@ function requireAdmin(req, res, next) {
   }
   next();
 }
-
 router.use(requireAdmin);
+
+/* ---------- LOGGER ---------- */
+async function logAction(data) {
+  try {
+    await Log.create({
+      ...data,
+      userEmail: req?.user?.email || "unknown"
+    });
+  } catch (err) {
+    console.error("Logging failed:", err);
+  }
+}
 
 /* ================= USERS ================= */
 
-/* -------- GET ALL USERS -------- */
 router.get("/users", async (req, res) => {
   const users = await User.find().select("-password -resetToken -resetTokenExpiry");
   res.json(users);
 });
 
-/* -------- CREATE USER -------- */
 router.post("/users", async (req, res) => {
   const { name, email, role } = req.body;
 
@@ -56,25 +65,23 @@ router.post("/users", async (req, res) => {
 
   await user.save();
 
-  try {
+  await Log.create({
+    action: "CREATE_USER",
+    userEmail: req.user.email,
+    details: { createdUser: email }
+  });
 
-    const link = `${process.env.BASE_URL}/set-password.html?token=${token}`;
+  const link = `${process.env.BASE_URL}/set-password.html?token=${token}`;
 
-    await sendEmail(
-      email,
-      "Set your password",
-      `<p>You were added to Promo Manager</p>
-       <a href="${link}">Set Password</a>`
-    );
+  await sendEmail(email, "Set your password", `
+    <p>You were added to Promo Manager</p>
+    <a href="${link}">Set Password</a>
+  `);
 
-    res.json({ success: true });
-
-  } catch (err) {
-    res.status(500).json({ error: "User created but email failed" });
-  }
+  res.json({ success: true });
 });
 
-/* -------- UPDATE USER CHANNELS -------- */
+/* UPDATE USER CHANNELS */
 router.put("/users/:email", async (req, res) => {
   const { email } = req.params;
   const { channels } = req.body;
@@ -82,23 +89,33 @@ router.put("/users/:email", async (req, res) => {
   const user = await User.findOne({ email });
 
   if (!user) return res.status(404).json({ error: "User not found" });
-
   if (user.role === "admin") {
     return res.status(400).json({ error: "Cannot modify admin channels" });
   }
 
+  const oldChannels = user.channels;
+
   user.channels = channels || [];
   await user.save();
+
+  await Log.create({
+    action: "UPDATE_USER_CHANNELS",
+    userEmail: req.user.email,
+    details: {
+      user: email,
+      before: oldChannels,
+      after: channels
+    }
+  });
 
   res.json({ success: true });
 });
 
-/* -------- DELETE USER -------- */
+/* DELETE USER */
 router.delete("/users/:email", async (req, res) => {
   const { email } = req.params;
 
   const user = await User.findOne({ email });
-
   if (!user) return res.status(404).json({ error: "User not found" });
 
   if (user.role === "admin") {
@@ -107,18 +124,22 @@ router.delete("/users/:email", async (req, res) => {
 
   await User.deleteOne({ email });
 
+  await Log.create({
+    action: "DELETE_USER",
+    userEmail: req.user.email,
+    details: { deletedUser: email }
+  });
+
   res.json({ success: true });
 });
 
 /* ================= CHANNELS ================= */
 
-/* -------- GET CHANNELS -------- */
 router.get("/channels", async (req, res) => {
   const channels = await Channel.find();
   res.json(channels);
 });
 
-/* -------- ADD CHANNEL -------- */
 router.post("/channels", async (req, res) => {
   const { channel, samsung, xiaomi, lg } = req.body;
 
@@ -126,66 +147,77 @@ router.post("/channels", async (req, res) => {
     return res.status(400).json({ error: "Channel name required" });
   }
 
-  try {
-    const newChannel = new Channel({
-      channel,
-      platforms: {
-        ...(samsung && { Samsung: samsung }),
-        ...(xiaomi && { Xiaomi: xiaomi }),
-        ...(lg && { LG: lg })
-      }
-    });
-
-    await newChannel.save();
-
-    res.json({ success: true });
-
-  } catch (err) {
-    res.status(400).json({ error: "Channel already exists" });
-  }
-});
-
-/* -------- UPDATE CHANNEL -------- */
-router.put("/channels/:name", async (req, res) => {
-  const { name } = req.params;
-  const { samsung, xiaomi, lg } = req.body;
-
-  const channel = await Channel.findOne({ channel: name });
-
-  if (!channel) {
-    return res.status(404).json({ error: "Channel not found" });
-  }
-
-  channel.platforms = {
+  const platforms = {
     ...(samsung && { Samsung: samsung }),
     ...(xiaomi && { Xiaomi: xiaomi }),
     ...(lg && { LG: lg })
   };
 
-  await channel.save();
+  const newChannel = await Channel.create({ channel, platforms });
+
+  await Log.create({
+    action: "CREATE_CHANNEL",
+    userEmail: req.user.email,
+    channel,
+    details: platforms
+  });
 
   res.json({ success: true });
 });
 
-/* -------- DELETE CHANNEL -------- */
-router.delete("/channels/:name", async (req, res) => {
+router.put("/channels/:name", async (req, res) => {
   const { name } = req.params;
+  const { samsung, xiaomi, lg } = req.body;
 
   const channel = await Channel.findOne({ channel: name });
-
   if (!channel) {
     return res.status(404).json({ error: "Channel not found" });
   }
 
-  await Channel.deleteOne({ channel: name });
+  const oldPlatforms = channel.platforms;
 
-  // remove from users
-  await User.updateMany(
-    {},
-    { $pull: { channels: name } }
-  );
+  const updatedPlatforms = {
+    ...(samsung && { Samsung: samsung }),
+    ...(xiaomi && { Xiaomi: xiaomi }),
+    ...(lg && { LG: lg })
+  };
+
+  channel.platforms = updatedPlatforms;
+  await channel.save();
+
+  await Log.create({
+    action: "CHANNEL_ID_CHANGE",
+    userEmail: req.user.email,
+    channel: name,
+    details: {
+      before: oldPlatforms,
+      after: updatedPlatforms
+    }
+  });
 
   res.json({ success: true });
+});
+
+router.delete("/channels/:name", async (req, res) => {
+  const { name } = req.params;
+
+  await Channel.deleteOne({ channel: name });
+
+  await User.updateMany({}, { $pull: { channels: name } });
+
+  await Log.create({
+    action: "DELETE_CHANNEL",
+    userEmail: req.user.email,
+    channel: name
+  });
+
+  res.json({ success: true });
+});
+
+/* GET LOGS */
+router.get("/logs", async (req, res) => {
+  const logs = await Log.find().sort({ createdAt: -1 }).limit(200);
+  res.json(logs);
 });
 
 export default router;
