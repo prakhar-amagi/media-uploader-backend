@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html>
 <head>
 <meta charset="UTF-8">
@@ -27,7 +26,6 @@ body {
   margin: auto;
 }
 
-/* HEADER */
 .header {
   display: flex;
   justify-content: space-between;
@@ -53,7 +51,6 @@ button {
 button.secondary { background: #9ca3af; }
 button.danger { background: #ef4444; }
 
-/* CARD */
 .card {
   background: var(--card);
   padding: 20px;
@@ -61,7 +58,6 @@ button.danger { background: #ef4444; }
   box-shadow: 0 10px 25px rgba(0,0,0,0.06);
 }
 
-/* TABLE */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -88,7 +84,6 @@ pre {
   word-break: break-word;
 }
 
-/* MENU */
 .user-menu {
   position: relative;
 }
@@ -112,8 +107,6 @@ pre {
 
 <div class="container">
 
-<!-- HEADER -->
-
 <div class="header">
 
   <div class="left-actions">
@@ -126,17 +119,12 @@ pre {
       👤 Account ▾
     </button>
 
-```
-<div id="menu" class="dropdown">
-  <button class="danger" onclick="logout()">Logout</button>
-</div>
-```
-
+    <div id="menu" class="dropdown">
+      <button class="danger" onclick="logout()">Logout</button>
+    </div>
   </div>
 
 </div>
-
-<!-- LOG TABLE -->
 
 <div class="card">
   <h2>📜 Activity Logs</h2>
@@ -162,17 +150,14 @@ pre {
 const token = localStorage.getItem("token");
 const role = localStorage.getItem("role");
 
-/* AUTH CHECK */
 if (!token) {
   window.location.href = "/login.html";
 }
 
-/* SHOW ADMIN BUTTON ONLY FOR ADMIN */
 if (role !== "admin") {
   document.getElementById("adminBtn").style.display = "none";
 }
 
-/* NAVIGATION */
 function goToDashboard() {
   window.location.href = "/index.html";
 }
@@ -191,7 +176,6 @@ function toggleMenu() {
   m.style.display = m.style.display === "block" ? "none" : "block";
 }
 
-/* LOAD LOGS */
 async function loadLogs() {
   try {
     const res = await fetch("/admin/logs", {
@@ -205,7 +189,6 @@ async function loadLogs() {
     }
 
     const logs = await res.json();
-
     const tbody = document.getElementById("logsBody");
     tbody.innerHTML = "";
 
@@ -224,22 +207,19 @@ async function loadLogs() {
         <td>${log.channel || "-"}</td>
         <td>${log.platform || "-"}</td>
         <td><pre>${JSON.stringify(log.details || {}, null, 2)}</pre></td>
+      `;
 
-```
-  `;
+      tbody.appendChild(row);
+    });
 
-  tbody.appendChild(row);
-});
-```
-
-} catch (err) {
-console.error("Logs error:", err);
-alert("❌ Failed to load logs. Check auth or backend.");
-}
+  } catch (err) {
+    console.error("Logs error:", err);
+    alert("❌ Failed to load logs. Check auth or backend.");
+  }
 }
 
-/* INIT */
-loadLogs(); </script>
+loadLogs();
+</script>
 
 </body>
 </html>
