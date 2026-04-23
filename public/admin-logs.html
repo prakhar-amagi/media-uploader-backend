@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Logs</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #333; color: white; }
+  </style>
+</head>
+<body>
+
+<h2>📜 Activity Logs</h2>
+
+<table id="logsTable">
+  <thead>
+    <tr>
+      <th>Time (UTC)</th>
+      <th>User</th>
+      <th>Action</th>
+      <th>Channel</th>
+      <th>Platform</th>
+      <th>Details</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+const token = localStorage.getItem("token");
+
+async function loadLogs() {
+  try {
+    const res = await fetch("/admin/logs", {
+      headers: {
+        Authorization: "Bearer " + token
+      }
+    });
+
+    const logs = await res.json();
+
+    const tbody = document.querySelector("#logsTable tbody");
+    tbody.innerHTML = "";
+
+    logs.forEach(log => {
+      const row = document.createElement("tr");
+
+      row.innerHTML = `
+        <td>${new Date(log.createdAt).toISOString()}</td>
+        <td>${log.userEmail || "-"}</td>
+        <td>${log.action}</td>
+        <td>${log.channel || "-"}</td>
+        <td>${log.platform || "-"}</td>
+        <td>${JSON.stringify(log.details || {})}</td>
+      `;
+
+      tbody.appendChild(row);
+    });
+
+  } catch (err) {
+    console.error("Failed to load logs", err);
+    alert("❌ Failed to load logs");
+  }
+}
+
+loadLogs();
+</script>
+
+</body>
+</html>

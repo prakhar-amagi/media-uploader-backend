@@ -88,6 +88,8 @@ input, select {
 <!-- MENU -->
 <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
   <button onclick="goToDashboard()" class="secondary">⬅ Dashboard</button>
+  <button onclick="goToLogs()">📜 Logs</button>
+
 
   <div style="position:relative;">
     <button onclick="toggleUserMenu()" style="background:#111827;">
@@ -166,6 +168,10 @@ function logout(){
 function goToDashboard(){
   window.location.href="/index.html";
 }
+function goToLogs(){
+  window.location.href = "/admin-logs.html";
+}
+
 
 /* STATE */
 let allChannels = [];

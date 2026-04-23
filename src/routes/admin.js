@@ -19,12 +19,12 @@ function requireAdmin(req, res, next) {
 }
 router.use(requireAdmin);
 
-/* ---------- LOGGER ---------- */
-async function logAction(data) {
+/* ---------- LOGGER (FIXED) ---------- */
+async function logAction(req, data) {
   try {
     await Log.create({
       ...data,
-      userEmail: req?.user?.email || "unknown"
+      userEmail: req.user?.email || "unknown"
     });
   } catch (err) {
     console.error("Logging failed:", err);
@@ -45,14 +45,13 @@ router.post("/users", async (req, res) => {
     return res.status(400).json({ error: "Name and email required" });
   }
 
-  const existing = await User.findOne({ email });
-  if (existing) {
+  if (await User.findOne({ email })) {
     return res.status(400).json({ error: "User already exists" });
   }
 
   const token = crypto.randomBytes(32).toString("hex");
 
-  const user = new User({
+  await User.create({
     name,
     email,
     password: null,
@@ -63,11 +62,8 @@ router.post("/users", async (req, res) => {
     resetTokenExpiry: Date.now() + 1000 * 60 * 60
   });
 
-  await user.save();
-
-  await Log.create({
+  await logAction(req, {
     action: "CREATE_USER",
-    userEmail: req.user.email,
     details: { createdUser: email }
   });
 
@@ -87,8 +83,8 @@ router.put("/users/:email", async (req, res) => {
   const { channels } = req.body;
 
   const user = await User.findOne({ email });
-
   if (!user) return res.status(404).json({ error: "User not found" });
+
   if (user.role === "admin") {
     return res.status(400).json({ error: "Cannot modify admin channels" });
   }
@@ -98,14 +94,9 @@ router.put("/users/:email", async (req, res) => {
   user.channels = channels || [];
   await user.save();
 
-  await Log.create({
+  await logAction(req, {
     action: "UPDATE_USER_CHANNELS",
-    userEmail: req.user.email,
-    details: {
-      user: email,
-      before: oldChannels,
-      after: channels
-    }
+    details: { user: email, before: oldChannels, after: channels }
   });
 
   res.json({ success: true });
@@ -124,9 +115,8 @@ router.delete("/users/:email", async (req, res) => {
 
   await User.deleteOne({ email });
 
-  await Log.create({
+  await logAction(req, {
     action: "DELETE_USER",
-    userEmail: req.user.email,
     details: { deletedUser: email }
   });
 
@@ -153,11 +143,10 @@ router.post("/channels", async (req, res) => {
     ...(lg && { LG: lg })
   };
 
-  const newChannel = await Channel.create({ channel, platforms });
+  await Channel.create({ channel, platforms });
 
-  await Log.create({
+  await logAction(req, {
     action: "CREATE_CHANNEL",
-    userEmail: req.user.email,
     channel,
     details: platforms
   });
@@ -185,14 +174,10 @@ router.put("/channels/:name", async (req, res) => {
   channel.platforms = updatedPlatforms;
   await channel.save();
 
-  await Log.create({
+  await logAction(req, {
     action: "CHANNEL_ID_CHANGE",
-    userEmail: req.user.email,
     channel: name,
-    details: {
-      before: oldPlatforms,
-      after: updatedPlatforms
-    }
+    details: { before: oldPlatforms, after: updatedPlatforms }
   });
 
   res.json({ success: true });
@@ -202,12 +187,10 @@ router.delete("/channels/:name", async (req, res) => {
   const { name } = req.params;
 
   await Channel.deleteOne({ channel: name });
-
   await User.updateMany({}, { $pull: { channels: name } });
 
-  await Log.create({
+  await logAction(req, {
     action: "DELETE_CHANNEL",
-    userEmail: req.user.email,
     channel: name
   });
 

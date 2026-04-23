@@ -15,13 +15,11 @@ router.use(requireAuth);
 
 function ensureFillerConfig(data) {
   if (!data.ssai_configuration) data.ssai_configuration = {};
-
   if (!data.ssai_configuration.filler_config) {
     data.ssai_configuration.filler_config = {
       url: []
     };
   }
-
   return data;
 }
 
@@ -38,8 +36,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     const deliveries = [];
 
     for (const platform of platformList) {
-      const channelId = channel.platforms[platform]; // ✅ FIX
-
+      const channelId = channel.platforms[platform];
       if (!channelId) continue;
 
       let data = await getPromos(channelId);
@@ -51,7 +48,6 @@ router.post("/", upload.single("file"), async (req, res) => {
 
       if (!urls.includes(cfUrl)) {
         urls.unshift(cfUrl);
-        data.ssai_configuration.filler_config.url = urls;
         await putPromos(channelId, data);
       }
 
@@ -61,7 +57,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     fs.unlinkSync(req.file.path);
 
     await Log.create({
-      action: "PROMO_UPLOAD",
+      action: "UPLOAD_PROMO",
       userEmail: req.user.email,
       channel: channelName,
       details: {
@@ -73,7 +69,6 @@ router.post("/", upload.single("file"), async (req, res) => {
     res.json({ success: true, url: cfUrl, deliveries });
 
   } catch (err) {
-    console.error("Upload error:", err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -19,7 +19,6 @@ router.get("/", async (req, res) => {
 
     for (const platform of platformList) {
       const channelId = channel.platforms[platform];
-
       if (!channelId) {
         result[platform] = [];
         continue;
@@ -50,16 +49,14 @@ router.delete("/", async (req, res) => {
       const data = await getPromos(channelId);
       if (!data?.ssai_configuration?.filler_config) continue;
 
-      const urls = data.ssai_configuration.filler_config.url || [];
-
       data.ssai_configuration.filler_config.url =
-        urls.filter(u => u !== url);
+        (data.ssai_configuration.filler_config.url || []).filter(u => u !== url);
 
       await putPromos(channelId, data);
     }
 
     await Log.create({
-      action: "PROMO_DELETE",
+      action: "DELETE_PROMO",
       userEmail: req.user.email,
       channel: channelName,
       details: { platforms, url }
