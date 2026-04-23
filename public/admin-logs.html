@@ -10,7 +10,9 @@
   </style>
 </head>
 <body>
-
+<div id="adminOption" style="display:none; margin-bottom:8px;">
+      <button onclick="goToAdmin()" style="width:100%;">⚙ Admin Panel</button>
+    </div>
 <h2>📜 Activity Logs</h2>
 
 <table id="logsTable">
@@ -65,6 +67,8 @@ async function loadLogs() {
 }
 
 loadLogs();
+function goToAdmin() {
+  window.location.href = "/admin.html";
 </script>
 
 </body>
