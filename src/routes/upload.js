@@ -55,7 +55,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     /* Upload to S3 */
-    const filename = sanitizeFilename(req.file.originalname);
+    const filename = `${Date.now()}-${sanitizeFilename(req.file.originalname)}`;
     const cfUrl = await uploadToS3(req.file.path, filename);
 
     const deliveries = [];
@@ -81,37 +81,38 @@ router.post("/", upload.single("file"), async (req, res) => {
 
       let urls = data.ssai_configuration.filler_config.url;
 
+      let added = false;
+
       if (!urls.includes(cfUrl)) {
         urls.unshift(cfUrl);
-
-        // ✅ IMPORTANT: assign back explicitly
         data.ssai_configuration.filler_config.url = urls;
-
-        console.log("📡 PUT payload:", JSON.stringify(data, null, 2));
 
         await putPromos(channelId, data);
 
         console.log(`✅ Updated ${platform}`);
+        added = true;
       } else {
         console.log(`⚠️ URL already exists for ${platform}`);
       }
 
       deliveries.push(channelId);
+
+      /* ✅ LOG PER PLATFORM (KEY CHANGE) */
+      await Log.create({
+        action: "UPLOAD_PROMO",
+        userEmail: req.user.email,
+        channel: channelName,
+        platform,
+        channelId,
+        details: {
+          url: cfUrl,
+          filename,
+          added
+        }
+      });
     }
 
     fs.unlinkSync(req.file.path);
-
-    /* ---------- LOG ---------- */
-    await Log.create({
-      action: "UPLOAD_PROMO",
-      userEmail: req.user.email,
-      channel: channelName,
-      details: {
-        platforms: platformList,
-        url: cfUrl,
-        deliveries
-      }
-    });
 
     res.json({
       success: true,

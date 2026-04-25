@@ -4,24 +4,25 @@ const logSchema = new mongoose.Schema(
   {
     action: {
       type: String,
-      required: true,
       enum: [
+        "CREATE_USER",
+        "DELETE_USER",
+        "UPDATE_USER_CHANNELS",
         "CREATE_CHANNEL",
-        "UPDATE_CHANNEL",
         "DELETE_CHANNEL",
-        "PROMO_UPLOAD",
-        "PROMO_DELETE",
-        "CHANNEL_ID_CHANGE"
-      ]
+        "CHANNEL_ID_CHANGE",
+        "UPLOAD_PROMO",
+        "DELETE_PROMO"
+      ],
+      required: true
     },
     userEmail: String,
     channel: String,
     platform: String,
-    details: Object // flexible payload
+    channelId: String,
+    details: Object
   },
-  {
-    timestamps: true // ✅ auto adds createdAt (UTC)
-  }
+  { timestamps: true }
 );
 
 export default mongoose.model("Log", logSchema);

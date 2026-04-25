@@ -100,7 +100,6 @@ pre {
   min-width: 120px;
 }
 </style>
-
 </head>
 
 <body>
@@ -150,32 +149,53 @@ pre {
 const token = localStorage.getItem("token");
 const role = localStorage.getItem("role");
 
+/* ---------- AUTH CHECK ---------- */
 if (!token) {
   window.location.href = "/login.html";
 }
 
+/* ---------- ROLE CHECK ---------- */
+const adminBtn = document.getElementById("adminBtn");
+
 if (role !== "admin") {
-  document.getElementById("adminBtn").style.display = "none";
+  // hide admin button if not admin
+  adminBtn.style.display = "none";
 }
 
+/* ---------- NAVIGATION ---------- */
 function goToDashboard() {
   window.location.href = "/index.html";
 }
 
 function goToAdmin() {
+  if (role !== "admin") {
+    alert("❌ Admin access only");
+    return;
+  }
   window.location.href = "/admin.html";
 }
 
+/* ---------- SESSION ---------- */
 function logout() {
   localStorage.clear();
   window.location.href = "/login.html";
 }
 
+/* ---------- MENU ---------- */
 function toggleMenu() {
-  const m = document.getElementById("menu");
-  m.style.display = m.style.display === "block" ? "none" : "block";
+  const menu = document.getElementById("menu");
+  menu.style.display = menu.style.display === "block" ? "none" : "block";
 }
 
+// close dropdown if clicked outside
+window.addEventListener("click", function(e) {
+  const menu = document.getElementById("menu");
+  if (!e.target.closest(".user-menu")) {
+    menu.style.display = "none";
+  }
+});
+
+/* ---------- LOAD LOGS ---------- */
 async function loadLogs() {
   try {
     const res = await fetch("/admin/logs", {
@@ -184,16 +204,22 @@ async function loadLogs() {
       }
     });
 
-    if (!res.ok) {
-      throw new Error("Request failed");
+    if (res.status === 401 || res.status === 403) {
+      logout();
+      return;
     }
 
     const logs = await res.json();
     const tbody = document.getElementById("logsBody");
     tbody.innerHTML = "";
 
-    if (!logs.length) {
-      tbody.innerHTML = "<tr><td colspan='6'>No logs found</td></tr>";
+    if (!logs || logs.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center; padding:20px;">
+            No logs found
+          </td>
+        </tr>`;
       return;
     }
 
@@ -214,7 +240,7 @@ async function loadLogs() {
 
   } catch (err) {
     console.error("Logs error:", err);
-    alert("❌ Failed to load logs. Check auth or backend.");
+    alert("❌ Failed to load logs");
   }
 }
 

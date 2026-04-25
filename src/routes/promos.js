@@ -7,64 +7,118 @@ import Log from "../models/Log.js";
 const router = express.Router();
 router.use(requireAuth);
 
-/* GET PROMOS */
+/* ---------------- GET PROMOS ---------------- */
 router.get("/", async (req, res) => {
   try {
     const { channelName, platforms } = req.query;
 
+    if (!channelName || !platforms) {
+      return res.status(400).json({
+        error: "channelName & platforms required"
+      });
+    }
+
     const platformList = JSON.parse(platforms);
+
     const channel = await Channel.findOne({ channel: channelName });
+
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
 
     const result = {};
 
     for (const platform of platformList) {
       const channelId = channel.platforms[platform];
+
       if (!channelId) {
         result[platform] = [];
         continue;
       }
 
       const data = await getPromos(channelId);
-      result[platform] = data?.ssai_configuration?.filler_config?.url || [];
+
+      result[platform] =
+        data?.ssai_configuration?.filler_config?.url || [];
     }
 
     res.json(result);
 
   } catch (err) {
+    console.error("❌ Promo fetch error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-/* DELETE PROMO */
+/* ---------------- DELETE PROMO ---------------- */
 router.delete("/", async (req, res) => {
   try {
     const { channelName, platforms, url } = req.body;
 
+    if (!channelName || !platforms || !url) {
+      return res.status(400).json({
+        error: "channelName, platforms & url required"
+      });
+    }
+
     const channel = await Channel.findOne({ channel: channelName });
+
+    if (!channel) {
+      return res.status(404).json({ error: "Channel not found" });
+    }
 
     for (const platform of platforms) {
       const channelId = channel.platforms[platform];
-      if (!channelId) continue;
 
-      const data = await getPromos(channelId);
-      if (!data?.ssai_configuration?.filler_config) continue;
+      if (!channelId) {
+        console.log(`❌ No channelId for ${platform}`);
+        continue;
+      }
 
-      data.ssai_configuration.filler_config.url =
-        (data.ssai_configuration.filler_config.url || []).filter(u => u !== url);
+      let data = await getPromos(channelId);
 
-      await putPromos(channelId, data);
+      if (!data?.ssai_configuration?.filler_config) {
+        console.log(`❌ No filler_config for ${platform}`);
+        continue;
+      }
+
+      let urls = data.ssai_configuration.filler_config.url || [];
+
+      const beforeCount = urls.length;
+
+      const updatedUrls = urls.filter(u => u !== url);
+
+      const removed = beforeCount !== updatedUrls.length;
+
+      data.ssai_configuration.filler_config.url = updatedUrls;
+
+      if (removed) {
+        await putPromos(channelId, data);
+        console.log(`🗑 Removed from ${platform}`);
+      } else {
+        console.log(`⚠️ URL not found in ${platform}`);
+      }
+
+      /* ✅ LOG PER PLATFORM */
+      await Log.create({
+        action: "DELETE_PROMO",
+        userEmail: req.user.email,
+        channel: channelName,
+        platform,
+        channelId,
+        details: {
+          url,
+          removed,
+          beforeCount,
+          afterCount: updatedUrls.length
+        }
+      });
     }
-
-    await Log.create({
-      action: "DELETE_PROMO",
-      userEmail: req.user.email,
-      channel: channelName,
-      details: { platforms, url }
-    });
 
     res.json({ success: true });
 
   } catch (err) {
+    console.error("❌ Delete promo error:", err);
     res.status(500).json({ error: err.message });
   }
 });
