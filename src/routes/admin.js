@@ -109,10 +109,6 @@ router.delete("/users/:email", async (req, res) => {
   const user = await User.findOne({ email });
   if (!user) return res.status(404).json({ error: "User not found" });
 
-  if (user.role === "admin") {
-    return res.status(400).json({ error: "Cannot delete admin user" });
-  }
-
   await User.deleteOne({ email });
 
   await logAction(req, {
