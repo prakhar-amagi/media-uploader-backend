@@ -55,7 +55,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     /* Upload to S3 */
-    const filename = `${Date.now()}-${sanitizeFilename(req.file.originalname)}`;
+    const filename = `${sanitizeFilename(req.file.originalname)}`;
     const cfUrl = await uploadToS3(req.file.path, filename);
 
     const deliveries = [];
