@@ -1,0 +1,48 @@
+.
+├── .env
+├── .gitignore
+├── package.json
+├── package-lock.json
+├── public
+│   ├── admin.html
+│   ├── admin-logs.html
+│   ├── forgot.html
+│   ├── index.html
+│   ├── login.html
+│   ├── reset-password.html
+│   └── set-password.html
+├── src
+│   ├── data
+│   │   ├── channels.json
+│   │   └── users.json
+│   ├── db
+│   │   └── mongo.js
+│   ├── env.js
+│   ├── middleware
+│   │   └── authMiddleware.js
+│   ├── models
+│   │   ├── Channel.js
+│   │   ├── Log.js
+│   │   └── User.js
+│   ├── routes
+│   │   ├── admin.js
+│   │   ├── auth.js
+│   │   ├── channels.js
+│   │   ├── promos.js
+│   │   └── upload.js
+│   ├── s3.js
+│   ├── server.js
+│   ├── services
+│   │   ├── cache.service.js
+│   │   ├── s3.service.js
+│   │   └── stormforge.service.js
+│   ├── stormforge.js
+│   └── utils
+│       ├── auth.js
+│       ├── channelMap.js
+│       ├── email.js
+│       ├── filename.js
+│       └── logger.js
+└── structure.txt
+
+10 directories, 36 files
