@@ -193,10 +193,44 @@ router.delete("/channels/:name", async (req, res) => {
   res.json({ success: true });
 });
 
-/* GET LOGS */
+/* GET LOGS (PAGINATED) */
 router.get("/logs", async (req, res) => {
-  const logs = await Log.find().sort({ createdAt: -1 }).limit(200);
-  res.json(logs);
-});
+  try {
+    const page = parseInt(req.query.page || "1");
+    const limitParam = req.query.limit || "20";
 
+    const totalLogs = await Log.countDocuments();
+
+    let logs;
+    let totalPages;
+
+    if (limitParam === "all") {
+      logs = await Log.find()
+        .sort({ createdAt: -1 });
+
+      totalPages = 1;
+    } else {
+      const limit = parseInt(limitParam);
+
+      logs = await Log.find()
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit);
+
+      totalPages = Math.ceil(totalLogs / limit);
+    }
+
+    res.json({
+      logs,
+      totalLogs,
+      totalPages,
+      currentPage: page
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
 export default router;

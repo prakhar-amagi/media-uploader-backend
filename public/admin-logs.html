@@ -128,6 +128,40 @@ pre {
 <div class="card">
   <h2>📜 Activity Logs</h2>
 
+<div style="
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:15px;
+  flex-wrap:wrap;
+  gap:10px;
+">
+
+  <div>
+    Show:
+    <select id="pageSize" onchange="changePageSize()">
+      <option value="20">20 Logs</option>
+      <option value="50">50 Logs</option>
+      <option value="all">All Logs</option>
+    </select>
+  </div>
+
+  <div>
+    <button class="secondary" onclick="prevPage()">
+      ⬅ Previous
+    </button>
+
+    <span id="pageInfo" style="margin:0 10px;">
+      Page 1
+    </span>
+
+    <button class="secondary" onclick="nextPage()">
+      Next ➡
+    </button>
+  </div>
+
+</div>
+
   <table>
     <thead>
       <tr>
@@ -149,6 +183,9 @@ pre {
 const token = localStorage.getItem("token");
 const role = localStorage.getItem("role");
 
+let currentPage = 1;
+let totalPages = 1;
+
 /* ---------- AUTH CHECK ---------- */
 if (!token) {
   window.location.href = "/login.html";
@@ -158,7 +195,6 @@ if (!token) {
 const adminBtn = document.getElementById("adminBtn");
 
 if (role !== "admin") {
-  // hide admin button if not admin
   adminBtn.style.display = "none";
 }
 
@@ -184,46 +220,85 @@ function logout() {
 /* ---------- MENU ---------- */
 function toggleMenu() {
   const menu = document.getElementById("menu");
-  menu.style.display = menu.style.display === "block" ? "none" : "block";
+  menu.style.display =
+    menu.style.display === "block" ? "none" : "block";
 }
 
-// close dropdown if clicked outside
 window.addEventListener("click", function(e) {
   const menu = document.getElementById("menu");
+
   if (!e.target.closest(".user-menu")) {
     menu.style.display = "none";
   }
 });
 
+/* ---------- PAGINATION ---------- */
+function changePageSize() {
+  currentPage = 1;
+  loadLogs();
+}
+
+function prevPage() {
+  if (currentPage > 1) {
+    currentPage--;
+    loadLogs();
+  }
+}
+
+function nextPage() {
+  if (currentPage < totalPages) {
+    currentPage++;
+    loadLogs();
+  }
+}
+
 /* ---------- LOAD LOGS ---------- */
 async function loadLogs() {
   try {
-    const res = await fetch("/admin/logs", {
-      headers: {
-        Authorization: "Bearer " + token
+
+    const pageSize =
+      document.getElementById("pageSize")?.value || "20";
+
+    const res = await fetch(
+      `/admin/logs?page=${currentPage}&limit=${pageSize}`,
+      {
+        headers: {
+          Authorization: "Bearer " + token
+        }
       }
-    });
+    );
 
     if (res.status === 401 || res.status === 403) {
       logout();
       return;
     }
 
-    const logs = await res.json();
+    const data = await res.json();
+
+    const logs = data.logs || [];
+
+    totalPages = data.totalPages || 1;
+
+    document.getElementById("pageInfo").textContent =
+      `Page ${currentPage} of ${totalPages}`;
+
     const tbody = document.getElementById("logsBody");
+
     tbody.innerHTML = "";
 
-    if (!logs || logs.length === 0) {
+    if (!logs.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" style="text-align:center; padding:20px;">
+          <td colspan="6" style="text-align:center;padding:20px;">
             No logs found
           </td>
-        </tr>`;
+        </tr>
+      `;
       return;
     }
 
     logs.forEach(log => {
+
       const row = document.createElement("tr");
 
       row.innerHTML = `
@@ -232,7 +307,9 @@ async function loadLogs() {
         <td><strong>${log.action}</strong></td>
         <td>${log.channel || "-"}</td>
         <td>${log.platform || "-"}</td>
-        <td><pre>${JSON.stringify(log.details || {}, null, 2)}</pre></td>
+        <td>
+          <pre>${JSON.stringify(log.details || {}, null, 2)}</pre>
+        </td>
       `;
 
       tbody.appendChild(row);
