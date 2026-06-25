@@ -148,6 +148,38 @@
       margin-top: 8px;
       color: var(--muted);
     }
+
+    /* Added Multi-Select Styles */
+    .multi-select {
+      position: relative;
+      display: inline-block;
+    }
+
+    .dropdown-panel {
+      display: none;
+      position: absolute;
+      top: 42px;
+      left: 0;
+      width: 350px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      z-index: 999;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+    }
+
+    .dropdown-panel label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: normal;
+    }
+
+    .dropdown-panel input {
+      margin-right: 8px;
+    }
   </style>
 </head>
 
@@ -155,7 +187,6 @@
 
 <div class="container">
 
-<!-- 👤 User Menu -->
 <div style="display:flex; justify-content:flex-end; margin-bottom:16px; position:relative;">
   <button onclick="toggleUserMenu()" style="background:#111827;">
     👤 User ▾
@@ -183,18 +214,23 @@
   </div>
 </div>
 
-
   <div class="card">
     <h2>📤 Upload Promo</h2>
 
-    <label>Channel</label><br>
-    <select
-  id="channelSelect"
-  multiple
-  size="12"
-  onchange="loadPlatforms()"
-  style="width:350px;"
-></select>
+    <label>Channels</label><br>
+
+    <div class="multi-select">
+      <button
+        type="button"
+        id="channelDropdownBtn"
+        class="secondary"
+        onclick="toggleChannelDropdown()"
+      >
+        Select Channels ▼
+      </button>
+
+      <div id="channelDropdown" class="dropdown-panel"></div>
+    </div>
 
     <div id="platforms"></div>
 
@@ -222,7 +258,6 @@
 function goToAdmin() {
   window.location.href = "/admin.html";
 }
-
 
 /* 🔐 AUTH CHECK */
 const token = localStorage.getItem("token");
@@ -252,11 +287,18 @@ function toggleUserMenu() {
   menu.style.display = menu.style.display === "block" ? "none" : "block";
 }
 
-// Close dropdown when clicking outside
+// Close dropdowns when clicking outside
 document.addEventListener("click", function(e) {
+  // User Profile Dropdown logic
   const menu = document.getElementById("userMenu");
   if (!e.target.closest("#userMenu") && !e.target.closest("button")) {
     menu.style.display = "none";
+  }
+
+  // Channels Dropdown logic
+  const dropdown = document.querySelector(".multi-select");
+  if (dropdown && !dropdown.contains(e.target)) {
+    document.getElementById("channelDropdown").style.display = "none";
   }
 });
 
@@ -267,15 +309,35 @@ if (localStorage.getItem("role") === "admin") {
 
 let currentXHR = null;
 
-const channelSelect = document.getElementById("channelSelect");
+const channelDropdown = document.getElementById("channelDropdown");
+const channelDropdownBtn = document.getElementById("channelDropdownBtn");
 const platformsBox = document.getElementById("platforms");
 const promoList = document.getElementById("promoList");
 const statusEl = document.getElementById("status");
 const progressBar = document.getElementById("progressBar");
 const fileInput = document.getElementById("fileInput");
+
+/* ---------- Channel Helper Functions ---------- */
+function toggleChannelDropdown() {
+  const dropdown = document.getElementById("channelDropdown");
+  dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
+}
+
 function getSelectedChannels() {
-  return [...channelSelect.selectedOptions]
-    .map(option => option.value);
+  return [
+    ...document.querySelectorAll("#channelDropdown input:checked")
+  ].map(cb => cb.value);
+}
+
+function updateChannelButtonText() {
+  const selected = getSelectedChannels();
+
+  if (!selected.length) {
+    channelDropdownBtn.textContent = "Select Channels ▼";
+    return;
+  }
+
+  channelDropdownBtn.textContent = `${selected.length} Channel(s) Selected ▼`;
 }
 
 /* ---------- Load channels ---------- */
@@ -283,16 +345,25 @@ async function loadChannels() {
   const res = await authFetch("/channels");
   const channels = await res.json();
 
-  channelSelect.innerHTML = "";
+  channelDropdown.innerHTML = "";
 
   channels.forEach(channelName => {
-    const opt = document.createElement("option");
-    opt.value = channelName;
-    opt.textContent = channelName;
-    channelSelect.appendChild(opt);
+    const label = document.createElement("label");
+    label.innerHTML = `
+      <input
+        type="checkbox"
+        value="${channelName}"
+        onchange="
+          updateChannelButtonText();
+          loadPlatforms();
+        "
+      >
+      ${channelName}
+    `;
+    channelDropdown.appendChild(label);
   });
 
-  if (channels.length) loadPlatforms();
+  updateChannelButtonText();
 }
 
 /* ---------- Load platforms ---------- */
@@ -301,16 +372,16 @@ async function loadPlatforms() {
 
   const selectedChannels = getSelectedChannels();
 
-if (!selectedChannels.length) {
-  platformsBox.innerHTML = "";
-  return;
-}
+  if (!selectedChannels.length) {
+    platformsBox.innerHTML = "";
+    return;
+  }
 
-/*
-  Use first selected channel
-  to determine available platforms
-*/
-const channelName = selectedChannels[0];
+  /*
+    Use first selected channel
+    to determine available platforms
+  */
+  const channelName = selectedChannels[0];
 
   try {
     const res = await authFetch(`/channels/${encodeURIComponent(channelName)}`);
@@ -355,29 +426,21 @@ async function uploadPromo() {
   const platforms = getSelectedPlatforms();
 
   if (
-  !files.length ||
-  !platforms.length ||
-  !getSelectedChannels().length
-) {
-  alert("Select channel(s), file & platform(s)");
-  return;
-}
+    !files.length ||
+    !platforms.length ||
+    !getSelectedChannels().length
+  ) {
+    alert("Select channel(s), file & platform(s)");
+    return;
+  }
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    statusEl.textContent =
-  `Uploading ${file.name} to ${
-    getSelectedChannels().length
-  } channel(s)`;
+    statusEl.textContent = `Uploading ${file.name} to ${getSelectedChannels().length} channel(s)`;
 
     const fd = new FormData();
     fd.append("file", file);
-    fd.append(
-  "channelNames",
-  JSON.stringify(
-    getSelectedChannels()
-  )
-);
+    fd.append("channelNames", JSON.stringify(getSelectedChannels()));
     fd.append("platforms", JSON.stringify(platforms));
 
     await new Promise((resolve, reject) => {
@@ -465,52 +528,52 @@ async function loadPromos() {
     column.className = "platform-column";
     column.innerHTML = `<h3>📺 ${platform}</h3>`;
 
-if (!urls.length) {
-  column.innerHTML += "<p>No promos</p>";
-} else {
+    if (!urls.length) {
+      column.innerHTML += "<p>No promos</p>";
+    } else {
 
-  /* ---------- URL LIST ---------- */
-  column.innerHTML += `
-    <div style="
-      background:white;
-      border:1px solid #e5e7eb;
-      border-radius:10px;
-      padding:10px;
-      margin-bottom:14px;
-    ">
-      <strong>Current Promo URLs</strong>
-      <ul style="
-        margin-top:8px;
-        padding-left:18px;
-        font-size:12px;
-        word-break:break-all;
-      ">
-        ${urls.map(url => `
-          <li>
-            <a href="${url}" target="_blank">${url}</a>
-          </li>
-        `).join("")}
-      </ul>
-    </div>
-  `;
+      /* ---------- URL LIST ---------- */
+      column.innerHTML += `
+        <div style="
+          background:white;
+          border:1px solid #e5e7eb;
+          border-radius:10px;
+          padding:10px;
+          margin-bottom:14px;
+        ">
+          <strong>Current Promo URLs</strong>
+          <ul style="
+            margin-top:8px;
+            padding-left:18px;
+            font-size:12px;
+            word-break:break-all;
+          ">
+            ${urls.map(url => `
+              <li>
+                <a href="${url}" target="_blank">${url}</a>
+              </li>
+            `).join("")}
+          </ul>
+        </div>
+      `;
 
-  /* ---------- Existing Video Cards ---------- */
-  urls.forEach(url => {
-    const filename = url.split("/").pop();
+      /* ---------- Existing Video Cards ---------- */
+      urls.forEach(url => {
+        const filename = url.split("/").pop();
 
-    column.innerHTML += `
-      <div class="promo-card">
-        <strong>${filename}</strong>
+        column.innerHTML += `
+          <div class="promo-card">
+            <strong>${filename}</strong>
 
-        <video src="${url}" controls muted></video>
+            <video src="${url}" controls muted></video>
 
-        <button onclick="deletePromo('${url}')">
-          🗑 Delete
-        </button>
-      </div>
-    `;
-  });
-}
+            <button onclick="deletePromo('${url}')">
+              🗑 Delete
+            </button>
+          </div>
+        `;
+      });
+    }
 
     grid.appendChild(column);
   });
