@@ -275,7 +275,7 @@
     <!-- KPI row -->
     <div class="kpi-row">
       <div class="kpi">
-        <div class="kpi-label">Total Avg ACU / Day</div>
+        <div class="kpi-label">Total Avg Concurrent Users/ Day</div>
         <div class="kpi-value" id="kpiAcu">—</div>
       </div>
       <div class="kpi">
@@ -296,7 +296,7 @@
             <th>Setup</th>
             <th>Product</th>
             <th>Split</th>
-            <th>Avg ACU / Day</th>
+            <th>Avg Concurrent Users / Day</th>
             <th>Avg Impressions / Day</th>
             <th>Days</th>
             <th></th>
@@ -318,7 +318,7 @@
             <th>Channel ID</th>
             <th>Setup</th>
             <th>Split %</th>
-            <th>Avg ACU/Day</th>
+            <th>Avg Concurrent Users/Day</th>
             <th>Avg Impr/Day</th>
           </tr>
         </thead>
@@ -338,7 +338,7 @@
     </div>
     <div class="chart-row">
       <div class="chart-wrap">
-        <div class="chart-label">Avg ACU per Day</div>
+        <div class="chart-label">Avg Concurrent Users per Day</div>
         <canvas id="acuChart"></canvas>
       </div>
       <div class="chart-wrap">
@@ -546,7 +546,7 @@
       if (_acuChart)  _acuChart.destroy();
       if (_imprChart) _imprChart.destroy();
 
-      const acuOpts  = chartOpts("Avg ACU", "#4f46e5");
+      const acuOpts  = chartOpts("Avg Concurrent Users", "#4f46e5");
       const imprOpts = chartOpts("Impressions", "#10b981");
       acuOpts.data.datasets[0].data  = acuVals;
       imprOpts.data.datasets[0].data = imprVals;
