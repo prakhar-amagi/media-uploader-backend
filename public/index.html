@@ -205,12 +205,19 @@
       min-width:160px;
       z-index:100;
   ">
-    <div id="adminOption" style="display:none; margin-bottom:8px;">
-      <button onclick="goToAdmin()" style="width:100%;">⚙ Admin Panel</button>
-    </div>
-    <button onclick="logout()" style="background:#ef4444; width:100%;">
-      🚪 Logout
-    </button>
+<div style="display:flex; flex-direction:column; gap:8px;">
+  <div id="adminOption" style="display:none;">
+    <button onclick="goToAdmin()" style="width:100%;">⚙️ Admin Panel</button>
+  </div>
+
+  <button onclick="goToTraffic()" style="width:100%;">
+    📊 Traffic Dashboard
+  </button>
+
+  <button onclick="logout()" style="width:100%; background:#ef4444;">
+    🚪 Logout
+  </button>
+</div>
   </div>
 </div>
 
@@ -257,6 +264,9 @@
 
 function goToAdmin() {
   window.location.href = "/admin.html";
+}
+function goToTraffic() {
+  window.location.href = "/traffic.html";
 }
 
 /* 🔐 AUTH CHECK */
@@ -524,9 +534,27 @@ async function loadPromos() {
   grid.className = "platform-grid";
 
   Object.entries(data).forEach(([platform, urls]) => {
-    const column = document.createElement("div");
-    column.className = "platform-column";
-    column.innerHTML = `<h3>📺 ${platform}</h3>`;
+const column = document.createElement("div");
+column.className = "platform-column";
+
+column.innerHTML = `
+<h3>📺 ${platform}</h3>
+
+<div style="margin-bottom:15px;">
+  <label>
+    <input
+      type="checkbox"
+      onclick="toggleSelectAll(this,'${platform}')">
+    Select All
+  </label>
+
+  <button
+    style="margin-left:10px;background:#dc2626;"
+    onclick="deleteSelectedPromos('${platform}')">
+    🗑 Delete Selected
+  </button>
+</div>
+`;
 
     if (!urls.length) {
       column.innerHTML += "<p>No promos</p>";
@@ -563,6 +591,8 @@ async function loadPromos() {
 
         column.innerHTML += `
           <div class="promo-card">
+            <label style="display:block;margin-bottom:8px;">
+            <input class="promoCheckbox" type="checkbox" data-platform="${platform}" value="${url}">Select</label>
             <strong>${filename}</strong>
 
             <video src="${url}" controls muted></video>
@@ -582,6 +612,50 @@ async function loadPromos() {
 }
 
 /* ---------- Delete promo ---------- */
+function toggleSelectAll(master, platform) {
+
+    document
+        .querySelectorAll(
+            `input.promoCheckbox[data-platform="${platform}"]`
+        )
+        .forEach(cb => cb.checked = master.checked);
+
+}
+
+async function deleteSelectedPromos(platform) {
+
+    const urls = [
+        ...document.querySelectorAll(
+            `input.promoCheckbox[data-platform="${platform}"]:checked`
+        )
+    ].map(cb => cb.value);
+
+    if (!urls.length) {
+        alert("Select at least one promo");
+        return;
+    }
+
+    if (!confirm(`Delete ${urls.length} selected promo(s)?`))
+        return;
+
+    const res = await authFetch("/promos", {
+        method: "DELETE",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            channelName: getSelectedChannels()[0],
+            platforms: [platform],
+            urls
+        })
+    });
+
+    if (res.ok) {
+        loadPromos();
+    } else {
+        alert("Failed to delete promos");
+    }
+}
 async function deletePromo(url) {
   const filename = url.split("/").pop();
   const platformList = getSelectedPlatforms().join(", ");

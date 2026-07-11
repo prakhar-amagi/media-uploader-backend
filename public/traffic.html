@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Traffic Dashboard</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    body {
+      font-family: Inter, Arial, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 40px;
+      color: var(--text);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .topbar h2 { margin: 0; }
+
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+    #userEmail { color: var(--muted); font-size: 14px; }
+
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-outline {
+      background: transparent;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+    }
+
+    .container { max-width: 1200px; margin: auto; }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+    }
+
+    .card h3 { margin: 0 0 16px 0; font-size: 16px; }
+
+    /* ── Cluster status pills ── */
+    .status-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1.5px solid var(--border);
+    }
+
+    .status-pill.ok  { border-color: var(--green); color: var(--green); }
+    .status-pill.err { border-color: var(--red);   color: var(--red);   }
+    .status-pill.cfg { border-color: var(--yellow); color: var(--yellow); }
+
+    /* ── Input row ── */
+    .input-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .field label {
+      display: block;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+
+    .field input {
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      width: 340px;
+    }
+
+    .field input:focus { outline: none; border-color: var(--primary); }
+
+    .field-sm input { width: 80px; }
+
+    /* ── KPI cards ── */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+
+    .kpi-label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+    .kpi-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+
+    /* ── Setup table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 10px 12px; background: var(--bg); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    td { padding: 12px; border-top: 1px solid var(--border); }
+    tr:hover td { background: #fafafe; }
+
+    /* ── Split bar ── */
+    .split-bar-wrap { width: 120px; background: var(--border); border-radius: 4px; height: 8px; }
+    .split-bar { height: 8px; border-radius: 4px; background: var(--primary); }
+
+    /* ── Trend modal ── */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 28px;
+      width: 90%;
+      max-width: 760px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .modal-header h3 { margin: 0; }
+
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    /* ── Mini chart ── */
+    .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px; }
+    .chart-wrap canvas { width: 100% !important; }
+    .chart-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+
+    /* ── History table ── */
+    .history-wrap { overflow-x: auto; }
+
+    /* ── Error / info ── */
+    .error-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .warn-box {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    .hidden { display: none; }
+
+    #spinner {
+      text-align: center;
+      color: var(--muted);
+      padding: 32px;
+      font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <h2>📊 Traffic Dashboard</h2>
+    <div class="topbar-right">
+      <span id="userEmail"></span>
+      <a href="/index.html"><button class="btn btn-outline btn-sm">← Back to App</button></a>
+      <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Cluster token status -->
+  <div class="card">
+    <h3>Grafana Cluster Status</h3>
+    <div class="status-grid" id="clusterStatus">Loading...</div>
+  </div>
+
+  <!-- Query form -->
+  <div class="card">
+    <h3>Fetch Setup-Wise Traffic</h3>
+    <div class="input-row">
+      <div class="field">
+        <label>Channel ID / Delivery ID</label>
+        <input type="text" id="channelId" placeholder="amg17930-amg17930c2-amgplt0026" />
+      </div>
+      <div class="field field-sm">
+        <label>Days</label>
+        <input type="number" id="days" value="7" min="1" max="30" />
+      </div>
+      <button class="btn" id="fetchBtn" onclick="fetchTraffic()">Fetch Metrics</button>
+    </div>
+  </div>
+
+  <!-- Spinner -->
+  <div id="spinner" class="hidden">⏳ Querying Grafana across clusters…</div>
+
+  <!-- Error -->
+  <div id="errorBox" class="error-box hidden"></div>
+
+  <!-- Results -->
+  <div id="results" class="hidden">
+
+    <div id="deliveryMeta" style="color:var(--muted);font-size:13px;margin-bottom:16px;"></div>
+
+    <!-- KPI row -->
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">Total Avg ACU / Day</div>
+        <div class="kpi-value" id="kpiAcu">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Total Avg Impressions / Day</div>
+        <div class="kpi-value" id="kpiImpr">—</div>
+      </div>
+    </div>
+
+    <!-- Partial errors -->
+    <div id="partialErrors"></div>
+
+    <!-- Setup table -->
+    <div class="card">
+      <h3>Setup-Wise Split</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Setup</th>
+            <th>Product</th>
+            <th>Split</th>
+            <th>Avg ACU / Day</th>
+            <th>Avg Impressions / Day</th>
+            <th>Days</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="setupTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="card">
+    <h3>Recent Queries</h3>
+    <div class="history-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Channel ID</th>
+            <th>Setup</th>
+            <th>Split %</th>
+            <th>Avg ACU/Day</th>
+            <th>Avg Impr/Day</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"><tr><td colspan="6" style="color:var(--muted)">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- Trend modal -->
+<div class="modal-backdrop" id="trendModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Trend</h3>
+      <button class="close-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div class="chart-row">
+      <div class="chart-wrap">
+        <div class="chart-label">Avg ACU per Day</div>
+        <canvas id="acuChart"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-label">Total Impressions per Day</div>
+        <canvas id="imprChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<script>
+  const TOKEN = localStorage.getItem("token");
+  const EMAIL = localStorage.getItem("email");
+
+  if (!TOKEN) location.href = "/login.html";
+  document.getElementById("userEmail").textContent = EMAIL || "";
+
+  function logout() {
+    localStorage.clear();
+    location.href = "/login.html";
+  }
+
+  function authHeaders() {
+    return { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
+  }
+
+  function fmt(n) {
+    if (n === undefined || n === null) return "—";
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  }
+
+  function timeAgo(iso) {
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s/60)}m ago`;
+    if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+    return `${Math.floor(s/86400)}d ago`;
+  }
+
+  /* ── Load cluster status ─────────────────────────────────────────────── */
+  async function loadClusterStatus() {
+    try {
+      const res = await fetch("/traffic/token-status", { headers: authHeaders() });
+      const data = await res.json();
+      const el = document.getElementById("clusterStatus");
+      el.innerHTML = data.map(s => {
+        const cls = !s.configured ? "cfg" : s.reachable ? "ok" : "err";
+        const icon = !s.configured ? "⚠️" : s.reachable ? "✅" : "❌";
+        const label = s.cluster + (s.org?.name ? ` (${s.org.name})` : "");
+        const title = s.error || (s.reachable ? "Connected" : "Unreachable");
+        return `<div class="status-pill ${cls}" title="${title}">${icon} ${label}</div>`;
+      }).join("");
+    } catch {
+      document.getElementById("clusterStatus").textContent = "Could not load status";
+    }
+  }
+
+  /* ── Fetch traffic ───────────────────────────────────────────────────── */
+  async function fetchTraffic() {
+    const channelId = document.getElementById("channelId").value.trim();
+    const days      = document.getElementById("days").value || 7;
+    if (!channelId) return alert("Please enter a Channel ID");
+
+    document.getElementById("fetchBtn").disabled = true;
+    document.getElementById("spinner").classList.remove("hidden");
+    document.getElementById("results").classList.add("hidden");
+    document.getElementById("errorBox").classList.add("hidden");
+
+    try {
+      const res = await fetch(`/traffic/setup-split?channelId=${encodeURIComponent(channelId)}&days=${days}`, {
+        headers: authHeaders()
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showError(data.error || JSON.stringify(data));
+        return;
+      }
+
+      renderResults(data);
+      loadHistory(channelId);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      document.getElementById("fetchBtn").disabled = false;
+      document.getElementById("spinner").classList.add("hidden");
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("errorBox");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  /* ── Render results ──────────────────────────────────────────────────── */
+  function renderResults(data) {
+    document.getElementById("results").classList.remove("hidden");
+
+    document.getElementById("deliveryMeta").textContent =
+      `${data.deliveryName || data.channelId}  ·  Customer: ${data.customerName || "—"}  ·  Channel: ${data.channelId}`;
+
+    document.getElementById("kpiAcu").textContent  = fmt(data.totalAvgAcuPerDay);
+    document.getElementById("kpiImpr").textContent = fmt(data.totalAvgImpressionsPerDay);
+
+    // Partial errors
+    const pe = document.getElementById("partialErrors");
+    pe.innerHTML = "";
+    if (data.errors?.length) {
+      for (const e of data.errors) {
+        pe.innerHTML += `<div class="warn-box">⚠️ <strong>${e.setup}</strong>: ${e.detail}</div>`;
+      }
+    }
+
+    // Setup table
+    const tbody = document.getElementById("setupTableBody");
+    tbody.innerHTML = "";
+    for (const s of data.setups) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><strong>${s.setup}</strong></td>
+        <td>${s.product}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="split-bar-wrap"><div class="split-bar" style="width:${s.splitPct}%"></div></div>
+            <span>${s.splitPct}%</span>
+          </div>
+        </td>
+        <td>${fmt(s.avgAcuPerDay)}</td>
+        <td>${fmt(s.avgImpressionsPerDay)}</td>
+        <td>${s.daysAnalyzed}</td>
+        <td><button class="btn btn-sm btn-outline" onclick="openTrend('${s.queryId}','${s.setup}')">Trend</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  /* ── History ─────────────────────────────────────────────────────────── */
+  async function loadHistory(channelId) {
+    const url = channelId
+      ? `/traffic/history?channelId=${encodeURIComponent(channelId)}&limit=20`
+      : `/traffic/history?limit=20`;
+    try {
+      const res  = await fetch(url, { headers: authHeaders() });
+      const rows = await res.json();
+      const tbody = document.getElementById("historyBody");
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="color:var(--muted)">No history yet.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map(r => `
+        <tr>
+          <td>${timeAgo(r.createdAt)}</td>
+          <td style="font-family:monospace;font-size:12px">${r.channelId}</td>
+          <td>${r.setup}</td>
+          <td>${r.trafficSplitPct}%</td>
+          <td>${fmt(r.avgAcuPerDay)}</td>
+          <td>${fmt(r.avgImpressionsPerDay)}</td>
+        </tr>
+      `).join("");
+    } catch {}
+  }
+
+  /* ── Trend modal ─────────────────────────────────────────────────────── */
+  let _acuChart = null;
+  let _imprChart = null;
+
+  async function openTrend(queryId, setup) {
+    document.getElementById("modalTitle").textContent = `Trend — ${setup}`;
+    document.getElementById("trendModal").classList.add("open");
+
+    try {
+      const res  = await fetch(`/traffic/trend/${queryId}`, { headers: authHeaders() });
+      const data = await res.json();
+      const trend = data.trend || [];
+
+      const labels = trend.map(d => d.date);
+      const acuVals  = trend.map(d => d.acu);
+      const imprVals = trend.map(d => d.impressions);
+
+      const chartOpts = (label, color) => ({
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            label,
+            data: [],
+            borderColor: color,
+            backgroundColor: color + "22",
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: false } }
+        }
+      });
+
+      if (_acuChart)  _acuChart.destroy();
+      if (_imprChart) _imprChart.destroy();
+
+      const acuOpts  = chartOpts("Avg ACU", "#4f46e5");
+      const imprOpts = chartOpts("Impressions", "#10b981");
+      acuOpts.data.datasets[0].data  = acuVals;
+      imprOpts.data.datasets[0].data = imprVals;
+
+      _acuChart  = new Chart(document.getElementById("acuChart"),  acuOpts);
+      _imprChart = new Chart(document.getElementById("imprChart"), imprOpts);
+    } catch (err) {
+      document.getElementById("modalTitle").textContent = `Error: ${err.message}`;
+    }
+  }
+
+  function closeModal() {
+    document.getElementById("trendModal").classList.remove("open");
+  }
+
+  /* ── Init ────────────────────────────────────────────────────────────── */
+  loadClusterStatus();
+  loadHistory();
+</script>
+</body>
+</html>

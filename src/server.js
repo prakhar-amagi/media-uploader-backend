@@ -6,6 +6,7 @@ import adminRoutes from "./routes/admin.js";
 import uploadRoutes from "./routes/upload.js";
 import promoRoutes from "./routes/promos.js";
 import channelRoutes from "./routes/channels.js";
+import trafficRoutes from "./routes/traffic.js";
 
 import { connectDB } from "./db/mongo.js";
 
@@ -26,6 +27,7 @@ app.use("/admin", adminRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/promos", promoRoutes);
 app.use("/channels", channelRoutes);
+app.use("/traffic", trafficRoutes);
 
 /* ---------- SERVER ---------- */
 const PORT = process.env.PORT || 3000;
