@@ -12,7 +12,7 @@ const logSchema = new mongoose.Schema(
         "DELETE_CHANNEL",
         "CHANNEL_ID_CHANGE",
         "UPLOAD_PROMO",
-        "DELETE_PROMO"
+        "DELETE_PROMOS"
       ],
       required: true
     },
