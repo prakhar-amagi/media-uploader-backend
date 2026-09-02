@@ -1,0 +1,1071 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Impression RCA</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --orange: #f97316;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+
+    body {
+      font-family: Inter, Arial, sans-serif;
+      background: var(--bg);
+      margin: 0;
+      padding: 40px;
+      color: var(--text);
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+
+    .topbar h2 { margin: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; }
+    #userEmail { color: var(--muted); font-size: 14px; }
+
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-outline {
+      background: transparent;
+      color: var(--primary);
+      border: 1.5px solid var(--primary);
+    }
+
+    .container { max-width: 1100px; margin: auto; }
+
+    .card {
+      background: var(--card);
+      border-radius: 14px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.06);
+    }
+
+    .card h3 { margin: 0 0 16px 0; font-size: 16px; }
+
+    .input-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .field label {
+      display: block;
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+
+    .field input {
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      width: 380px;
+    }
+
+    .field input:focus { outline: none; border-color: var(--primary); }
+    .field-sm input { width: 80px; }
+
+    .hidden { display: none; }
+
+    #topologySpinner, #investigateSpinner {
+      text-align: center;
+      color: var(--muted);
+      padding: 24px;
+      font-size: 15px;
+    }
+
+    .error-box {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .warn-box {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      color: #92400e;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    /* Supply tag groups */
+    .supply-group {
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    .supply-group-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .supply-group-header .name { font-weight: 700; font-size: 14px; }
+    .supply-group-header .ratio {
+      font-size: 12px;
+      color: var(--primary);
+      font-weight: 700;
+      background: #eef2ff;
+      padding: 2px 10px;
+      border-radius: 20px;
+    }
+
+    .priority-group { margin: 10px 0; }
+    .priority-group .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .demand-tag-list { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .demand-tag-chip {
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      background: #fff;
+      transition: all .1s;
+    }
+
+    .demand-tag-chip:hover { border-color: var(--primary); }
+    .demand-tag-chip.selected {
+      border-color: var(--primary);
+      background: #eef2ff;
+      font-weight: 700;
+    }
+
+    .demand-tag-chip .id { color: var(--muted); font-size: 11px; }
+
+    /* Verdict card */
+    .verdict-card {
+      border-radius: 14px;
+      padding: 22px 26px;
+      margin-bottom: 20px;
+      border: 2px solid var(--border);
+    }
+
+    .verdict-card.severity-high   { border-color: var(--red);    background: #fef2f2; }
+    .verdict-card.severity-medium { border-color: var(--orange); background: #fff7ed; }
+    .verdict-card.severity-low    { border-color: var(--yellow); background: #fffbeb; }
+    .verdict-card.severity-none   { border-color: var(--green);  background: #f0fdf4; }
+    .verdict-card.severity-gray   { border-color: var(--border); background: #f9fafb; }
+
+    .verdict-status {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .verdict-headline { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+    .verdict-reason { font-size: 14px; line-height: 1.6; color: var(--text); }
+
+    .confidence-badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin-left: 10px;
+      vertical-align: middle;
+    }
+
+    .confidence-badge.HIGH   { background: #dcfce7; color: #166534; }
+    .confidence-badge.MEDIUM { background: #fef3c7; color: #92400e; }
+    .confidence-badge.LOW    { background: #fee2e2; color: #991b1b; }
+    .confidence-badge.NONE   { background: #f3f4f6; color: #6b7280; }
+
+    /* Funnel stages */
+    .funnel-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-top: 6px;
+    }
+
+    .funnel-stage {
+      background: var(--card);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+
+    .funnel-stage .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: .03em;
+      margin-bottom: 6px;
+    }
+
+    .funnel-stage .change { font-size: 22px; font-weight: 700; }
+    .change.up   { color: var(--green); }
+    .change.down { color: var(--red); }
+    .change.flat { color: var(--muted); }
+    .funnel-stage .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* Cluster pills */
+    .cluster-pill {
+      display: inline-block;
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      margin: 2px 4px 2px 0;
+      border: 1.5px solid var(--border);
+    }
+
+    .cluster-pill.ok  { border-color: var(--green); color: var(--green); }
+    .cluster-pill.bad { border-color: var(--red); color: var(--red); }
+
+    /* History table */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 10px 12px; background: var(--bg); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    td { padding: 12px; border-top: 1px solid var(--border); }
+    tr:hover td { background: #fafafe; }
+    .history-wrap { overflow-x: auto; }
+
+    .status-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: #f3f4f6;
+      color: #374151;
+    }
+
+    /* Raw data trend tables */
+    .trend-table-wrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+
+    .trend-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .trend-table th {
+      position: sticky; top: 0;
+      text-align: right;
+      padding: 8px 12px;
+      background: var(--bg);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      color: var(--muted);
+      white-space: nowrap;
+      border-bottom: 2px solid var(--border);
+    }
+    .trend-table th:first-child, .trend-table td:first-child { text-align: left; }
+    .trend-table td { padding: 7px 12px; text-align: right; border-top: 1px solid var(--border); white-space: nowrap; }
+    .trend-table tr:hover td { background: #fafafe; }
+
+    .window-divider td {
+      border-top: 2px dashed var(--primary) !important;
+      position: relative;
+    }
+    .window-divider td:first-child::before {
+      content: "↓ current window ↓";
+      position: absolute;
+      left: 0; top: -9px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--primary);
+      background: var(--card);
+      padding: 0 4px;
+    }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1.5px solid var(--border); }
+    .tab-btn {
+      background: none; border: none; padding: 8px 16px; font-size: 13px;
+      font-weight: 600; color: var(--muted); cursor: pointer;
+      border-bottom: 2px solid transparent; margin-bottom: -1.5px;
+    }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Athena connection gate */
+    .connect-box {
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .connect-box.connected { border-color: var(--green); background: #f0fdf4; }
+    .connect-box.disconnected { border-color: var(--red); background: #fef2f2; }
+    .connect-box.pending { border-color: var(--orange); background: #fff7ed; }
+
+    .connect-status-text { font-size: 14px; font-weight: 600; }
+    .connect-status-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+    .device-code-box {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 14px 20px;
+      text-align: center;
+      margin-top: 10px;
+    }
+
+    .device-code-box .code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #4ade80;
+      margin: 6px 0;
+    }
+
+    .device-code-box .hint { font-size: 12.5px; color: #94a3b8; }
+
+    /* Diagnostics log panel */
+    .log-box {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      line-height: 1.6;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .log-box .ok    { color: #4ade80; }
+    .log-box .fail  { color: #f87171; }
+    .log-box .dim   { color: #94a3b8; }
+
+    .sso-callout {
+      background: #fff7ed;
+      border: 1.5px solid var(--orange);
+      color: #7c2d12;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+
+    .sso-callout code {
+      display: inline-block;
+      background: #1e293b;
+      color: #4ade80;
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin-top: 6px;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      user-select: all;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="topbar">
+    <h2>Impression RCA</h2>
+    <div class="topbar-right">
+      <span id="userEmail"></span>
+      <a href="/index.html"><button class="btn btn-outline btn-sm">Back to App</button></a>
+      <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>1. Look up channel</h3>
+    <div class="input-row">
+      <div class="field">
+        <label>Channel ID / Delivery ID</label>
+        <input type="text" id="channelId" placeholder="amg01821-lovetvfast-lovecrimeandhistoryspain-xiaomiinternational" />
+      </div>
+      <button class="btn" id="loadTopologyBtn" onclick="loadTopology()">Load Demand Tags</button>
+    </div>
+  </div>
+
+  <div id="topologySpinner" class="hidden">Resolving supply router and demand tags...</div>
+  <div id="topologyError" class="error-box hidden"></div>
+
+  <div id="topologyResults" class="hidden">
+    <div class="card">
+      <h3>2. Pick a demand tag to investigate</h3>
+      <div id="supplyGroups"></div>
+    </div>
+
+    <div class="card">
+      <h3>3. Connect to Athena</h3>
+      <div id="connectBox" class="connect-box disconnected">
+        <div>
+          <div class="connect-status-text" id="connectStatusText">Checking AWS connection…</div>
+          <div class="connect-status-sub" id="connectStatusSub"></div>
+        </div>
+        <button class="btn" id="connectBtn" onclick="startAwsConnect()">Connect to AWS</button>
+      </div>
+      <div id="deviceCodeBox" class="device-code-box hidden">
+        <div class="hint">A new tab opened to AWS sign-in. Confirm this code matches:</div>
+        <div class="code" id="deviceUserCode"></div>
+        <div class="hint" id="deviceCodeHint">Waiting for approval…</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>4. Run the investigation</h3>
+      <div class="input-row">
+        <div class="field field-sm">
+          <label>Days</label>
+          <input type="number" id="days" value="15" min="2" max="30" />
+        </div>
+        <button class="btn" id="investigateBtn" onclick="runInvestigation()" disabled>
+          Run RCA
+        </button>
+        <span id="selectedTagLabel" style="color:var(--muted); font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="investigateSpinner" class="hidden">Pulling ACU, Athena funnel, and SpringServe demand data...</div>
+  <div id="investigateError" class="error-box hidden"></div>
+
+  <div id="verdictSection" class="hidden">
+    <div class="card" style="padding:0; box-shadow:none; background:none;">
+      <div id="verdictCard" class="verdict-card">
+        <div class="verdict-status" id="verdictStatus"></div>
+        <div class="verdict-headline">
+          <span id="verdictHeadline"></span>
+          <span id="confidenceBadge" class="confidence-badge"></span>
+        </div>
+        <div class="verdict-reason" id="verdictReason"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Funnel - current vs. prior window</h3>
+      <div id="clusterPills" style="margin-bottom:12px;"></div>
+      <div class="funnel-row" id="funnelRow"></div>
+    </div>
+
+    <div class="card" id="diagnosticsCard">
+      <h3>Data Source Diagnostics</h3>
+      <div id="ssoCallouts"></div>
+      <div id="diagnosticsLog"></div>
+    </div>
+
+    <div class="card">
+      <h3>Raw Data — inspect the trend yourself</h3>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="athenaTab" onclick="switchTab('athenaTab')">Athena Funnel</button>
+        <button class="tab-btn" data-tab="acuTab" onclick="switchTab('acuTab')">Grafana ACU</button>
+        <button class="tab-btn" data-tab="springserveTab" onclick="switchTab('springserveTab')">SpringServe Demand</button>
+      </div>
+
+      <div id="athenaTab" class="tab-panel active">
+        <div class="trend-table-wrap"><table class="trend-table" id="athenaTable"></table></div>
+      </div>
+      <div id="acuTab" class="tab-panel">
+        <div class="trend-table-wrap"><table class="trend-table" id="acuTable"></table></div>
+      </div>
+      <div id="springserveTab" class="tab-panel">
+        <div class="trend-table-wrap"><table class="trend-table" id="springserveTable"></table></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Recent Investigations</h3>
+    <div class="history-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Channel ID</th>
+            <th>Demand Tag</th>
+            <th>Status</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const TOKEN = localStorage.getItem("token");
+  const EMAIL = localStorage.getItem("email");
+
+  if (!TOKEN) location.href = "/login.html";
+  document.getElementById("userEmail").textContent = EMAIL || "";
+
+  function logout() {
+    localStorage.clear();
+    location.href = "/login.html";
+  }
+
+  function authHeaders() {
+    return { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
+  }
+
+  function fmtPct(n) {
+    if (n === null || n === undefined) return "n/a";
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${n}%`;
+  }
+
+  function pctClass(n) {
+    if (n === null || n === undefined) return "flat";
+    if (n <= -15) return "down";
+    if (n >= 15) return "up";
+    return "flat";
+  }
+
+  function timeAgo(iso) {
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s/60)}m ago`;
+    if (s < 86400) return `${Math.floor(s/3600)}h ago`;
+    return `${Math.floor(s/86400)}d ago`;
+  }
+
+  const STATUS_LABELS = {
+    TRAFFIC_SOURCE_ISSUE:          { label: "Traffic / source issue",             severity: "high" },
+    TRAFFIC_VIEWERSHIP_ISSUE:      { label: "Viewership (ACU) dropped",           severity: "medium" },
+    AD_MARKER_DETECTION_ISSUE:     { label: "Ad-marker detection issue",          severity: "high" },
+    AD_REQUEST_GENERATION_ISSUE:   { label: "Ad request generation issue",        severity: "medium" },
+    DEMAND_OPPORTUNITY_DECLINE:    { label: "Demand: fewer usable opportunities", severity: "medium" },
+    DEMAND_FILL_DECLINE:           { label: "Demand: fill rate declined",         severity: "medium" },
+    DEMAND_TIMEOUT_ISSUE:          { label: "Demand: partner timeouts",           severity: "medium" },
+    PLAYBACK_OR_MEASUREMENT_ISSUE: { label: "Playback / measurement issue",       severity: "low" },
+    NO_SIGNIFICANT_CHANGE:         { label: "No significant change",              severity: "none" },
+    NO_DATA:                       { label: "No data available",                 severity: "gray" },
+  };
+
+  let selectedDemandTagId = null;
+  let currentChannelId = null;
+  let awsConnected = false;
+  let pollTimer = null;
+
+  function updateRunButtonState() {
+    document.getElementById("investigateBtn").disabled = !(selectedDemandTagId && awsConnected);
+  }
+
+  /* ── Athena / AWS SSO connection ─────────────────────────────────── */
+  async function checkAwsStatus() {
+    const box = document.getElementById("connectBox");
+    const textEl = document.getElementById("connectStatusText");
+    const subEl = document.getElementById("connectStatusSub");
+    const btn = document.getElementById("connectBtn");
+
+    box.className = "connect-box pending";
+    textEl.textContent = "Checking AWS connection…";
+    subEl.textContent = "";
+
+    try {
+      const res = await fetch("/rca/aws-sso/status", { headers: authHeaders() });
+      const data = await res.json();
+
+      awsConnected = !!data.connected;
+
+      if (data.connected) {
+        box.className = "connect-box connected";
+        textEl.textContent = "Connected to AWS";
+        subEl.textContent = `Account ${data.account} · ${data.arn || ""}`;
+        btn.textContent = "Reconnect";
+      } else {
+        box.className = "connect-box disconnected";
+        textEl.textContent = "Not connected to AWS";
+        subEl.textContent = data.error || "Athena queries will fail until you connect.";
+        btn.textContent = "Connect to AWS";
+      }
+    } catch (err) {
+      awsConnected = false;
+      box.className = "connect-box disconnected";
+      textEl.textContent = "Could not check AWS connection";
+      subEl.textContent = err.message;
+    }
+
+    updateRunButtonState();
+  }
+
+  async function startAwsConnect() {
+    const btn = document.getElementById("connectBtn");
+    btn.disabled = true;
+
+    try {
+      const res = await fetch("/rca/aws-sso/connect", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        document.getElementById("connectStatusSub").textContent = data.error || "Failed to start AWS connection.";
+        btn.disabled = false;
+        return;
+      }
+
+      window.open(data.verificationUriComplete, "_blank");
+
+      const deviceBox = document.getElementById("deviceCodeBox");
+      deviceBox.classList.remove("hidden");
+      document.getElementById("deviceUserCode").textContent = data.userCode;
+      document.getElementById("deviceCodeHint").textContent = "Waiting for approval in the new tab…";
+
+      pollAwsConnect(data.sessionId, data.interval || 5);
+    } catch (err) {
+      document.getElementById("connectStatusSub").textContent = err.message;
+      btn.disabled = false;
+    }
+  }
+
+  function pollAwsConnect(sessionId, intervalSeconds) {
+    if (pollTimer) clearTimeout(pollTimer);
+
+    const tick = async () => {
+      try {
+        const res = await fetch(`/rca/aws-sso/poll?sessionId=${encodeURIComponent(sessionId)}`, {
+          headers: authHeaders(),
+        });
+        const data = await res.json();
+
+        if (data.status === "complete") {
+          document.getElementById("deviceCodeBox").classList.add("hidden");
+          document.getElementById("connectBtn").disabled = false;
+          await checkAwsStatus();
+          return;
+        }
+
+        if (data.status === "expired" || data.status === "error") {
+          document.getElementById("deviceCodeHint").textContent = data.error || "Connection failed. Try again.";
+          document.getElementById("connectBtn").disabled = false;
+          return;
+        }
+
+        // still pending — keep polling
+        pollTimer = setTimeout(tick, intervalSeconds * 1000);
+      } catch (err) {
+        document.getElementById("deviceCodeHint").textContent = err.message;
+        document.getElementById("connectBtn").disabled = false;
+      }
+    };
+
+    pollTimer = setTimeout(tick, intervalSeconds * 1000);
+  }
+
+  async function loadTopology() {
+    const channelId = document.getElementById("channelId").value.trim();
+    if (!channelId) return alert("Please enter a Channel ID");
+
+    currentChannelId = channelId;
+    selectedDemandTagId = null;
+    updateRunButtonState();
+    document.getElementById("selectedTagLabel").textContent = "";
+
+    document.getElementById("loadTopologyBtn").disabled = true;
+    document.getElementById("topologySpinner").classList.remove("hidden");
+    document.getElementById("topologyError").classList.add("hidden");
+    document.getElementById("topologyResults").classList.add("hidden");
+    document.getElementById("verdictSection").classList.add("hidden");
+
+    try {
+      const res = await fetch(`/rca/topology?channelId=${encodeURIComponent(channelId)}`, {
+        headers: authHeaders(),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showTopologyError(data.error || JSON.stringify(data));
+        return;
+      }
+
+      renderSupplyGroups(data.prioritySelection || []);
+      document.getElementById("topologyResults").classList.remove("hidden");
+    } catch (err) {
+      showTopologyError(err.message);
+    } finally {
+      document.getElementById("loadTopologyBtn").disabled = false;
+      document.getElementById("topologySpinner").classList.add("hidden");
+    }
+  }
+
+  function showTopologyError(msg) {
+    const el = document.getElementById("topologyError");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function renderSupplyGroups(supplyGroups) {
+    const container = document.getElementById("supplyGroups");
+
+    if (!supplyGroups.length) {
+      container.innerHTML = `<div class="warn-box">No supply tags found for this channel's supply router.</div>`;
+      return;
+    }
+
+    container.innerHTML = supplyGroups.map((supply) => {
+      const priorityGroupsHtml = (supply.priorityGroups || []).map((pg) => {
+        const chipsHtml = (pg.demandTags || []).map((dt) => {
+          const label = dt.name || dt.demandPartnerName || ("Demand tag " + dt.id);
+          return `
+            <div class="demand-tag-chip" data-demand-tag-id="${dt.id}" data-demand-tag-label="${escapeHtml(label)}" onclick="selectDemandTagFromChip(this)">
+              ${escapeHtml(label)}
+              <div class="id">#${dt.id}${dt.locked ? " (locked)" : ""}</div>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <div class="priority-group">
+            <div class="label">Priority ${pg.priority} - Tier ${pg.tier}</div>
+            <div class="demand-tag-list">${chipsHtml}</div>
+          </div>
+        `;
+      }).join("");
+
+      return `
+        <div class="supply-group">
+          <div class="supply-group-header">
+            <span class="name">${escapeHtml(supply.supplyTagName || "Unnamed supply tag")}</span>
+            <span class="ratio">${supply.ratio ?? "?"}% of traffic</span>
+          </div>
+          ${priorityGroupsHtml}
+        </div>
+      `;
+    }).join("");
+  }
+
+  function selectDemandTagFromChip(el) {
+    const id = Number(el.dataset.demandTagId);
+    const label = el.dataset.demandTagLabel;
+
+    selectedDemandTagId = id;
+
+    document.querySelectorAll(".demand-tag-chip").forEach((chip) => {
+      chip.classList.toggle("selected", Number(chip.dataset.demandTagId) === id);
+    });
+
+    document.getElementById("selectedTagLabel").textContent = `Selected: ${label} (#${id})`;
+    updateRunButtonState();
+  }
+
+  async function runInvestigation() {
+    if (!currentChannelId || !selectedDemandTagId) return;
+    const days = document.getElementById("days").value || 15;
+
+    document.getElementById("investigateBtn").disabled = true;
+    document.getElementById("investigateSpinner").classList.remove("hidden");
+    document.getElementById("investigateError").classList.add("hidden");
+    document.getElementById("verdictSection").classList.add("hidden");
+
+    try {
+      const url = `/rca/investigate?channelId=${encodeURIComponent(currentChannelId)}`
+        + `&demandTagId=${selectedDemandTagId}&days=${days}`;
+      const res = await fetch(url, { headers: authHeaders() });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showInvestigateError(data.detail ? `${data.error}: ${JSON.stringify(data.detail)}` : (data.error || JSON.stringify(data)));
+        return;
+      }
+
+      renderVerdict(data);
+      loadHistory();
+    } catch (err) {
+      showInvestigateError(err.message);
+    } finally {
+      document.getElementById("investigateBtn").disabled = false;
+      document.getElementById("investigateSpinner").classList.add("hidden");
+    }
+  }
+
+  function showInvestigateError(msg) {
+    const el = document.getElementById("investigateError");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  function renderVerdict(data) {
+    const rca = data.rca || {};
+    const meta = STATUS_LABELS[rca.status] || { label: rca.status || "Unknown", severity: "gray" };
+
+    const card = document.getElementById("verdictCard");
+    card.className = `verdict-card severity-${meta.severity}`;
+
+    document.getElementById("verdictStatus").textContent = rca.status || "-";
+    document.getElementById("verdictHeadline").textContent = meta.label;
+
+    const badge = document.getElementById("confidenceBadge");
+    badge.textContent = rca.confidence || "-";
+    badge.className = `confidence-badge ${rca.confidence || "NONE"}`;
+
+    document.getElementById("verdictReason").textContent = rca.reason || "No reason returned.";
+
+    const clusters = data.clusters || {};
+    const pillsEl = document.getElementById("clusterPills");
+    const resolvedPills = (clusters.resolved || []).map(c => `<span class="cluster-pill ok">${c}</span>`).join("");
+    const unresolvedPills = (clusters.unresolved || []).map(c => `<span class="cluster-pill bad">${c} (unmapped)</span>`).join("");
+    pillsEl.innerHTML = resolvedPills + unresolvedPills || `<span style="color:var(--muted); font-size:13px;">No cluster info</span>`;
+
+    const acu = data.acu || {};
+    const athenaChange = (data.athena && data.athena.summary && data.athena.summary.changePercent) || {};
+
+    const stages = [
+      { label: "ACU (Users)", value: acu.changePercent },
+      { label: "Detections",  value: athenaChange.detections },
+      { label: "Requests",    value: athenaChange.requests },
+      { label: "Usable Ads",  value: athenaChange.usable_ads },
+      { label: "Impressions", value: athenaChange.impressions },
+    ];
+
+    document.getElementById("funnelRow").innerHTML = stages.map(s => `
+      <div class="funnel-stage">
+        <div class="label">${s.label}</div>
+        <div class="change ${pctClass(s.value)}">${fmtPct(s.value)}</div>
+        <div class="sub">vs. prior window</div>
+      </div>
+    `).join("");
+
+    document.getElementById("verdictSection").classList.remove("hidden");
+    renderDiagnostics(data);
+    renderAthenaTable((data.athena && data.athena.summary && data.athena.summary.daily) || []);
+    renderAcuTable((data.acu && data.acu.daily) || [], (data.acu && data.acu.perSetup) || []);
+    renderSpringserveTable((data.springserve && data.springserve.daily) || []);
+  }
+
+  function switchTab(tabId) {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tabId));
+    document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("active", p.id === tabId));
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined) return "—";
+    return Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  function humanize(key) {
+    const overrides = {
+      has_ads: "Bids",
+    };
+    if (overrides[key]) return overrides[key];
+    return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function renderAthenaTable(dailyRows) {
+    const table = document.getElementById("athenaTable");
+
+    if (!dailyRows.length) {
+      table.innerHTML = `<tr><td style="color:var(--muted); padding:16px;">No Athena data returned for this window.</td></tr>`;
+      return;
+    }
+
+    const mid = Math.floor(dailyRows.length / 2);
+    const cols = ["detections", "requests", "usable_ads", "impressions", "conversion"];
+
+    const head = `<tr><th>Date</th>${cols.map(c => `<th>${humanize(c)}</th>`).join("")}</tr>`;
+
+    const body = dailyRows.map((row, i) => `
+      <tr${i === mid ? ' class="window-divider"' : ""}>
+        <td>${escapeHtml(row.ts)}</td>
+        ${cols.map(c => `<td>${fmtNum(row[c])}${c === "conversion" ? "%" : ""}</td>`).join("")}
+      </tr>
+    `).join("");
+
+    table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+  }
+
+  function renderAcuTable(mergedDaily, perSetup) {
+    const table = document.getElementById("acuTable");
+
+    if (!mergedDaily.length) {
+      table.innerHTML = `<tr><td style="color:var(--muted); padding:16px;">No ACU data returned for this window.</td></tr>`;
+      return;
+    }
+
+    const setups = perSetup.map(s => s.setup);
+    const bySetupByDate = {};
+    for (const s of perSetup) {
+      bySetupByDate[s.setup] = {};
+      for (const d of s.daily) bySetupByDate[s.setup][d.date] = d.acu;
+    }
+
+    const mid = Math.floor(mergedDaily.length / 2);
+
+    const head = `<tr><th>Date</th>${setups.map(s => `<th>${escapeHtml(s)}</th>`).join("")}<th>Total ACU</th></tr>`;
+
+    const body = mergedDaily.map((row, i) => `
+      <tr${i === mid ? ' class="window-divider"' : ""}>
+        <td>${escapeHtml(row.date)}</td>
+        ${setups.map(s => `<td>${fmtNum(bySetupByDate[s]?.[row.date])}</td>`).join("")}
+        <td><strong>${fmtNum(row.acu)}</strong></td>
+      </tr>
+    `).join("");
+
+    table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+  }
+
+  function renderSpringserveTable(dailyRows) {
+    const table = document.getElementById("springserveTable");
+
+    if (!dailyRows.length) {
+      table.innerHTML = `<tr><td style="color:var(--muted); padding:16px;">No SpringServe tag performance data returned for this window.</td></tr>`;
+      return;
+    }
+
+    const mid = Math.floor(dailyRows.length / 2);
+
+    // Counts first, then rates (already converted to % server-side)
+    const cols = ["usable_requests", "has_ads", "opportunities", "impressions", "fill_rate", "opportunity_fill_rate"];
+
+    const head = `<tr><th>Date</th>${cols.map(c => `<th>${humanize(c)}</th>`).join("")}</tr>`;
+
+    const body = dailyRows.map((row, i) => `
+      <tr${i === mid ? ' class="window-divider"' : ""}>
+        <td>${escapeHtml(row.date)}</td>
+        ${cols.map(c => {
+          const isRate = c.includes("rate");
+          return `<td>${fmtNum(row[c])}${isRate ? "%" : ""}</td>`;
+        }).join("")}
+      </tr>
+    `).join("");
+
+    table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+  }
+
+  function renderDiagnostics(data) {
+    const athenaAttempts = (data.athena && data.athena.perCluster) || [];
+    const grafanaAttempts = (data.acu && data.acu.perSetup) || [];
+
+    const ssoFailures = [...athenaAttempts, ...grafanaAttempts].filter((a) => a.isSsoExpired);
+    const calloutEl = document.getElementById("ssoCallouts");
+
+    if (ssoFailures.length) {
+      const profiles = [...new Set(ssoFailures.map((a) => a.profile).filter(Boolean))];
+      const profileList = profiles.length ? profiles : ["thunderstorm-v3"];
+      calloutEl.innerHTML = profileList.map((p) => `
+        <div class="sso-callout">
+          Your AWS SSO session has expired. Run this in a terminal, then re-run the investigation:
+          <br><code>aws sso login --profile ${escapeHtml(p)}</code>
+        </div>
+      `).join("");
+    } else {
+      calloutEl.innerHTML = "";
+    }
+
+    const lines = [];
+
+    for (const a of athenaAttempts) {
+      lines.push(`<span class="dim">Connecting to Athena (${escapeHtml(a.clusterKey)})...</span>`);
+      lines.push(`<span class="dim">Region:</span> ${escapeHtml(a.region || "n/a")}`);
+      lines.push(`<span class="dim">Database:</span> ${escapeHtml(a.database || "n/a")}`);
+      lines.push(`<span class="dim">Output:</span> ${escapeHtml(a.outputLocation || "n/a")}`);
+      lines.push(`<span class="dim">Starting Athena query...</span>`);
+      if (a.ok) {
+        lines.push(`<span class="ok">Query succeeded — ${a.rowCount} day(s) of data</span>`);
+      } else {
+        lines.push(`<span class="fail">Athena detection trend failed for cluster ${escapeHtml(a.clusterKey)}: ${escapeHtml(a.error)}</span>`);
+      }
+      lines.push("");
+    }
+
+    for (const a of grafanaAttempts) {
+      lines.push(`<span class="dim">Connecting to Grafana (${escapeHtml(a.setup)} → ${escapeHtml(a.clusterKey || "?")})...</span>`);
+      if (a.ok) {
+        lines.push(`<span class="ok">Query succeeded — ${a.daily.length} day(s) of ACU data</span>`);
+      } else {
+        lines.push(`<span class="fail">ACU trend failed for setup ${escapeHtml(a.setup)}: ${escapeHtml(a.error)}</span>`);
+      }
+      lines.push("");
+    }
+
+    document.getElementById("diagnosticsLog").innerHTML = lines.length
+      ? `<div class="log-box">${lines.join("\n")}</div>`
+      : `<span style="color:var(--muted); font-size:13px;">No data source attempts recorded.</span>`;
+  }
+
+  async function loadHistory() {
+    try {
+      const url = currentChannelId
+        ? `/rca/history?channelId=${encodeURIComponent(currentChannelId)}&limit=20`
+        : `/rca/history?limit=20`;
+      const res = await fetch(url, { headers: authHeaders() });
+      const docs = await res.json();
+
+      const body = document.getElementById("historyBody");
+      if (!Array.isArray(docs) || !docs.length) {
+        body.innerHTML = `<tr><td colspan="5" style="color:var(--muted)">No investigations yet</td></tr>`;
+        return;
+      }
+
+      body.innerHTML = docs.map(d => `
+        <tr>
+          <td>${timeAgo(d.createdAt)}</td>
+          <td>${escapeHtml(d.channelId)}</td>
+          <td>#${d.demandTagId}</td>
+          <td><span class="status-tag">${escapeHtml(d.status || "-")}</span></td>
+          <td>${escapeHtml(d.confidence || "-")}</td>
+        </tr>
+      `).join("");
+    } catch {
+      document.getElementById("historyBody").innerHTML =
+        `<tr><td colspan="5" style="color:var(--muted)">Could not load history</td></tr>`;
+    }
+  }
+
+  loadHistory();
+  checkAwsStatus();
+</script>
+
+</body>
+</html>

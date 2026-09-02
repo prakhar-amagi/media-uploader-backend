@@ -6,7 +6,11 @@
     "start": "node src/server.js"
   },
   "dependencies": {
+    "@aws-sdk/client-athena": "^3.1110.0",
     "@aws-sdk/client-s3": "^3.540.0",
+    "@aws-sdk/client-sso-oidc": "^3.1110.0",
+    "@aws-sdk/client-sts": "^3.1110.0",
+    "@aws-sdk/credential-providers": "^3.1110.0",
     "axios": "^1.6.7",
     "bcrypt": "^6.0.0",
     "crypto": "^1.0.1",
