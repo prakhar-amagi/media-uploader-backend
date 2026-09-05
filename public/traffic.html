@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <script src="/auth-guard.js"></script>
   <title>Traffic Dashboard</title>
   <style>
     :root {
@@ -357,17 +358,13 @@
   const TOKEN = localStorage.getItem("token");
   const EMAIL = localStorage.getItem("email");
 
-  if (!TOKEN) location.href = "/login.html";
+  // auth-guard.js (loaded in <head>) already redirected if the token
+  // was missing or expired — no need to re-check here.
   document.getElementById("userEmail").textContent = EMAIL || "";
 
-  function logout() {
-    localStorage.clear();
-    location.href = "/login.html";
-  }
+  function logout() { window.authGuard.logout(); }
 
-  function authHeaders() {
-    return { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` };
-  }
+  function authHeaders() { return window.authGuard.authHeaders(); }
 
   function fmt(n) {
     if (n === undefined || n === null) return "—";

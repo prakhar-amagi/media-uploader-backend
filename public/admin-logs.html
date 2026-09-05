@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+  <script src="/auth-guard.js"></script>
 <title>Admin Logs</title>
 
 <style>
@@ -180,16 +181,12 @@ pre {
 </div>
 
 <script>
-const token = localStorage.getItem("token");
 const role = localStorage.getItem("role");
 
 let currentPage = 1;
 let totalPages = 1;
 
-/* ---------- AUTH CHECK ---------- */
-if (!token) {
-  window.location.href = "/login.html";
-}
+/* ---------- AUTH CHECK handled by auth-guard.js in <head> ---------- */
 
 /* ---------- ROLE CHECK ---------- */
 const adminBtn = document.getElementById("adminBtn");
@@ -212,10 +209,7 @@ function goToAdmin() {
 }
 
 /* ---------- SESSION ---------- */
-function logout() {
-  localStorage.clear();
-  window.location.href = "/login.html";
-}
+function logout() { window.authGuard.logout(); }
 
 /* ---------- MENU ---------- */
 function toggleMenu() {
@@ -261,11 +255,7 @@ async function loadLogs() {
 
     const res = await fetch(
       `/admin/logs?page=${currentPage}&limit=${pageSize}`,
-      {
-        headers: {
-          Authorization: "Bearer " + token
-        }
-      }
+      { headers: window.authGuard.authHeaders() }
     );
 
     if (res.status === 401 || res.status === 403) {

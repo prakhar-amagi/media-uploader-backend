@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+  <script src="/auth-guard.js"></script>
 <title>Admin Panel</title>
 
 <style>
@@ -139,31 +140,22 @@ input, select {
 </div>
 
 <script>
-const token = localStorage.getItem("token");
 const currentEmail = localStorage.getItem("email");
 
-if(!token || localStorage.getItem("role") !== "admin"){
+// auth-guard.js handles token presence + expiry. Also enforce admin role here.
+if (localStorage.getItem("role") !== "admin") {
   window.location.href = "/login.html";
 }
 
 function authFetch(url, options = {}) {
   options.headers = {
     ...(options.headers || {}),
-    "Authorization": "Bearer " + token
+    ...window.authGuard.authHeaders(),
   };
   return fetch(url, options);
 }
 
-/* MENU */
-function toggleUserMenu(){
-  const m = document.getElementById("userMenu");
-  m.style.display = m.style.display === "block" ? "none" : "block";
-}
-
-function logout(){
-  localStorage.clear();
-  location.href="/login.html";
-}
+function logout() { window.authGuard.logout(); }
 
 function goToDashboard(){
   window.location.href="/index.html";

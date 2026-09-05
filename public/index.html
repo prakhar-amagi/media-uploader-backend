@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <script src="/auth-guard.js"></script>
   <title>Promo Manager</title>
 
   <style>
@@ -305,28 +306,18 @@ function goToRca() {
   window.location.href = "/rca.html";
 }
 
-/* 🔐 AUTH CHECK */
-const token = localStorage.getItem("token");
-if(!token){
-  window.location.href="/login.html";
-}
+/* 🔐 AUTH CHECK handled by auth-guard.js loaded in <head> */
 
-/* 🔐 AUTH FETCH (GLOBAL) */
+/* 🔐 AUTH FETCH (GLOBAL) — uses the shared authGuard helper */
 function authFetch(url, options = {}) {
-  const token = localStorage.getItem("token");
-
   options.headers = {
     ...(options.headers || {}),
-    "Authorization": "Bearer " + token
+    ...window.authGuard.authHeaders(),
   };
-
   return fetch(url, options);
 }
 
-function logout(){
-  localStorage.removeItem("token");
-  location.href="/login.html";
-}
+function logout() { window.authGuard.logout(); }
 
 function toggleUserMenu() {
   const menu = document.getElementById("userMenu");
