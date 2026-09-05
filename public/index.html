@@ -180,6 +180,32 @@
     .dropdown-panel input {
       margin-right: 8px;
     }
+
+    /* Style for the selected channels display */
+    #selectedChannelsList {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .channel-tag {
+      background-color: #e0e7ff;
+      color: var(--primary);
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* Style for multi-channel headers */
+    .channel-section-header {
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 10px;
+      color: var(--primary);
+      margin-top: 30px;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 
@@ -242,6 +268,9 @@
 
       <div id="channelDropdown" class="dropdown-panel"></div>
     </div>
+
+    <!-- Container for selected channels -->
+    <div id="selectedChannelsList"></div>
 
     <div id="platforms"></div>
 
@@ -348,13 +377,20 @@ function getSelectedChannels() {
 
 function updateChannelButtonText() {
   const selected = getSelectedChannels();
+  const listContainer = document.getElementById("selectedChannelsList");
 
   if (!selected.length) {
     channelDropdownBtn.textContent = "Select Channels ▼";
+    listContainer.innerHTML = ""; // Clear the list if nothing is selected
     return;
   }
 
   channelDropdownBtn.textContent = `${selected.length} Channel(s) Selected ▼`;
+  
+  // Render the selected channels as HTML tags
+  listContainer.innerHTML = selected
+    .map(channel => `<span class="channel-tag">${channel}</span>`)
+    .join('');
 }
 
 /* ---------- Load channels ---------- */
@@ -516,133 +552,152 @@ function cancelUpload() {
 async function loadPromos() {
   promoList.innerHTML = "";
 
+  const channels = getSelectedChannels();
+  if (!channels.length) {
+    promoList.innerHTML = "<p>Select at least one channel above</p>";
+    return;
+  }
+
   const platforms = getSelectedPlatforms();
   if (!platforms.length) {
     promoList.innerHTML = "<p>Select platform</p>";
     return;
   }
 
-  const q = new URLSearchParams({
-    channelName: getSelectedChannels()[0],
-    platforms: JSON.stringify(platforms)
-  });
+  // Iterate over every selected channel to fetch and render its promos
+  for (const channel of channels) {
+    
+    // Create a container and header for this specific channel
+    const channelContainer = document.createElement("div");
+    channelContainer.style.marginBottom = "40px";
+    channelContainer.innerHTML = `<h2 class="channel-section-header">📡 Channel: ${channel}</h2>`;
+    
+    const q = new URLSearchParams({
+      channelName: channel,
+      platforms: JSON.stringify(platforms)
+    });
 
-  const res = await authFetch(`/promos?${q}`);
+    const res = await authFetch(`/promos?${q}`);
 
-  if (res.status === 401) {
-    alert("Session expired. Login again.");
-    logout();
-    return;
-  }
-
-  const data = await res.json();
-
-  const grid = document.createElement("div");
-  grid.className = "platform-grid";
-
-  Object.entries(data).forEach(([platform, urls]) => {
-const column = document.createElement("div");
-column.className = "platform-column";
-
-column.innerHTML = `
-<h3>📺 ${platform}</h3>
-
-<div style="margin-bottom:15px;">
-  <label>
-    <input
-      type="checkbox"
-      onclick="toggleSelectAll(this,'${platform}')">
-    Select All
-  </label>
-
-  <button
-    style="margin-left:10px;background:#dc2626;"
-    onclick="deleteSelectedPromos('${platform}')">
-    🗑 Delete Selected
-  </button>
-</div>
-`;
-
-    if (!urls.length) {
-      column.innerHTML += "<p>No promos</p>";
-    } else {
-
-      /* ---------- URL LIST ---------- */
-      column.innerHTML += `
-        <div style="
-          background:white;
-          border:1px solid #e5e7eb;
-          border-radius:10px;
-          padding:10px;
-          margin-bottom:14px;
-        ">
-          <strong>Current Promo URLs</strong>
-          <ul style="
-            margin-top:8px;
-            padding-left:18px;
-            font-size:12px;
-            word-break:break-all;
-          ">
-            ${urls.map(url => `
-              <li>
-                <a href="${url}" target="_blank">${url}</a>
-              </li>
-            `).join("")}
-          </ul>
-        </div>
-      `;
-
-      /* ---------- Existing Video Cards ---------- */
-      urls.forEach(url => {
-        const filename = url.split("/").pop();
-
-        column.innerHTML += `
-          <div class="promo-card">
-            <label style="display:block;margin-bottom:8px;">
-            <input class="promoCheckbox" type="checkbox" data-platform="${platform}" value="${url}">Select</label>
-            <strong>${filename}</strong>
-
-            <video src="${url}" controls muted></video>
-
-            <button onclick="deletePromo('${url}')">
-              🗑 Delete
-            </button>
-          </div>
-        `;
-      });
+    if (res.status === 401) {
+      alert("Session expired. Login again.");
+      logout();
+      return;
     }
 
-    grid.appendChild(column);
-  });
+    if (!res.ok) {
+      channelContainer.innerHTML += `<p style="color:red;">❌ Failed to load promos for ${channel}</p>`;
+      promoList.appendChild(channelContainer);
+      continue; // Skip to the next channel on error
+    }
 
-  promoList.appendChild(grid);
+    const data = await res.json();
+    const grid = document.createElement("div");
+    grid.className = "platform-grid";
+
+    Object.entries(data).forEach(([platform, urls]) => {
+      const column = document.createElement("div");
+      column.className = "platform-column";
+
+      column.innerHTML = `
+      <h3>📺 ${platform}</h3>
+
+      <div style="margin-bottom:15px;">
+        <label>
+          <input
+            type="checkbox"
+            onclick="toggleSelectAll(this,'${channel}','${platform}')">
+          Select All
+        </label>
+
+        <button
+          style="margin-left:10px;background:#dc2626;"
+          onclick="deleteSelectedPromos('${channel}', '${platform}')">
+          🗑 Delete Selected
+        </button>
+      </div>
+      `;
+
+      if (!urls.length) {
+        column.innerHTML += "<p>No promos</p>";
+      } else {
+        /* ---------- URL LIST ---------- */
+        column.innerHTML += `
+          <div style="
+            background:white;
+            border:1px solid #e5e7eb;
+            border-radius:10px;
+            padding:10px;
+            margin-bottom:14px;
+          ">
+            <strong>Current Promo URLs</strong>
+            <ul style="
+              margin-top:8px;
+              padding-left:18px;
+              font-size:12px;
+              word-break:break-all;
+            ">
+              ${urls.map(url => `
+                <li>
+                  <a href="${url}" target="_blank">${url}</a>
+                </li>
+              `).join("")}
+            </ul>
+          </div>
+        `;
+
+        /* ---------- Existing Video Cards ---------- */
+        urls.forEach(url => {
+          const filename = url.split("/").pop();
+
+          column.innerHTML += `
+            <div class="promo-card">
+              <label style="display:block;margin-bottom:8px;">
+              <input class="promoCheckbox" type="checkbox" data-channel="${channel}" data-platform="${platform}" value="${url}">Select</label>
+              <strong>${filename}</strong>
+
+              <video src="${url}" controls muted></video>
+
+              <button onclick="deletePromo('${channel}', '${url}')">
+                🗑 Delete
+              </button>
+            </div>
+          `;
+        });
+      }
+
+      grid.appendChild(column);
+    });
+
+    channelContainer.appendChild(grid);
+    promoList.appendChild(channelContainer);
+  }
 }
 
 /* ---------- Delete promo ---------- */
-function toggleSelectAll(master, platform) {
-
+function toggleSelectAll(master, channel, platform) {
+    // Select checkboxes specifically scoped to this channel AND platform
     document
         .querySelectorAll(
-            `input.promoCheckbox[data-platform="${platform}"]`
+            `input.promoCheckbox[data-channel="${channel}"][data-platform="${platform}"]`
         )
         .forEach(cb => cb.checked = master.checked);
-
 }
 
-async function deleteSelectedPromos(platform) {
-
+async function deleteSelectedPromos(channel, platform) {
+    // Only grab checked URLs for this specific channel and platform
     const urls = [
         ...document.querySelectorAll(
-            `input.promoCheckbox[data-platform="${platform}"]:checked`
+            `input.promoCheckbox[data-channel="${channel}"][data-platform="${platform}"]:checked`
         )
     ].map(cb => cb.value);
 
     if (!urls.length) {
-        alert("Select at least one promo");
+        alert("Select at least one promo in this section");
         return;
     }
 
-    if (!confirm(`Delete ${urls.length} selected promo(s)?`))
+    if (!confirm(`Delete ${urls.length} selected promo(s) for ${channel} on ${platform}?`))
         return;
 
     const res = await authFetch("/promos", {
@@ -651,7 +706,7 @@ async function deleteSelectedPromos(platform) {
             "Content-Type": "application/json"
         },
         body: JSON.stringify({
-            channelName: getSelectedChannels()[0],
+            channelName: channel,
             platforms: [platform],
             urls
         })
@@ -663,12 +718,13 @@ async function deleteSelectedPromos(platform) {
         alert("Failed to delete promos");
     }
 }
-async function deletePromo(url) {
+
+async function deletePromo(channel, url) {
   const filename = url.split("/").pop();
   const platformList = getSelectedPlatforms().join(", ");
 
   const confirmed = confirm(
-    `Delete this promo?\n\nFile: ${filename}\nPlatforms: ${platformList}`
+    `Delete this promo?\n\nChannel: ${channel}\nFile: ${filename}\nPlatforms: ${platformList}`
   );
 
   if (!confirmed) return;
@@ -677,7 +733,7 @@ async function deletePromo(url) {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      channelName: getSelectedChannels()[0],
+      channelName: channel,
       platforms: getSelectedPlatforms(),
       url
     })
