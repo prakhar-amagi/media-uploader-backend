@@ -79,6 +79,30 @@ input, select {
   gap:10px;
   padding:6px 0;
 }
+
+/* Platform editor */
+.platform-editor { margin-top: 12px; }
+.platform-editor-head { display:grid; grid-template-columns: 200px 1fr 36px; gap:8px; font-size:12px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; }
+.platform-row { display:grid; grid-template-columns: 200px 1fr 36px; gap:8px; margin-bottom:8px; align-items:center; }
+.platform-row input { width:100%; margin-top:0; box-sizing:border-box; border:1.5px solid #e5e7eb; border-radius:8px; }
+.platform-row input:focus { outline:none; border-color: var(--primary); }
+.platform-row input.invalid { border-color:#ef4444; background:#fef2f2; }
+.icon-btn { background:#f3f4f6; color:#6b7280; padding:6px 0; width:36px; font-size:16px; line-height:1; }
+.icon-btn:hover { background:#fee2e2; color:#b91c1c; }
+button.ghost { background:transparent; color:var(--primary); border:1.5px dashed var(--primary); }
+.form-error { color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; font-size:13px; margin-top:10px; display:none; white-space:pre-line; }
+.hint { font-size:12.5px; color:#6b7280; margin-top:6px; }
+.channel-item { display:flex; justify-content:space-between; gap:16px; padding:12px 14px; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px; }
+.channel-item .pf-list { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.pf-chip { font-size:12px; background:#eef2ff; color:#3730a3; border-radius:6px; padding:3px 8px; }
+.pf-chip code { font-size:11px; color:#6b7280; margin-left:4px; }
+.pf-count { font-size:12px; color:#6b7280; font-weight:600; margin-left:6px; }
+.muted { color:#6b7280; font-size:13px; }
+.list-tools { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+.list-tools input { margin-top:0; }
+@media (max-width: 700px) {
+  .platform-row, .platform-editor-head { grid-template-columns: 1fr 1fr 36px; }
+}
 </style>
 </head>
 
@@ -111,12 +135,20 @@ input, select {
       z-index:100;
   ">
 <div style="display:flex; flex-direction:column; gap:8px;">
+  <button onclick="goToLogs()" style="width:100%; white-space: nowrap;">
+    📜 Activity Logs
+  </button>
+
   <button onclick="goToTraffic()" style="width:100%; white-space: nowrap;">
     📊 Traffic Dashboard
   </button>
 
   <button onclick="goToRca()" style="width:100%;">
     🔎 Impression RCA
+  </button>
+
+  <button onclick="window.location.href='/render-rate-rca.html'" style="width:100%; white-space: nowrap;">
+    📉 Render Rate RCA
   </button>
 
   <button onclick="logout()" style="width:100%; background:#ef4444;">
@@ -149,15 +181,26 @@ input, select {
 <div class="card">
   <h2>📺 Manage Channels</h2>
 
-  <input id="newChannel" placeholder="Channel name">
-  <input id="samsungId" placeholder="Samsung ID">
-  <input id="xiaomiId" placeholder="Xiaomi ID">
-  <input id="lgId" placeholder="LG ID">
+  <h3 style="margin-bottom:6px;">Create channel</h3>
+  <input id="newChannel" placeholder="Channel name (e.g. Zee News)">
 
-  <br><br>
+  <div class="platform-editor">
+    <div class="platform-editor-head"><span>Platform</span><span>StormForge channel ID</span><span></span></div>
+    <div id="newPlatformRows"></div>
+    <button type="button" class="ghost" onclick="addPlatformRow('newPlatformRows')">+ Add platform</button>
+    <div class="hint">Add one row per platform the channel is delivered to (Samsung, LG, Xiaomi, Vizio, …). Only these platforms will be offered when uploading promos for this channel.</div>
+  </div>
+  <div id="createChannelError" class="form-error"></div>
+
+  <br>
   <button onclick="createChannel()">Create Channel</button>
 
   <hr>
+  <div class="list-tools">
+    <h3 style="margin:0;">Channels <span id="channelCount" class="pf-count"></span></h3>
+    <input id="channelSearch" placeholder="Search channels or platforms" oninput="renderChannelList()">
+  </div>
+  <br>
   <div id="channelList"></div>
 </div>
 
@@ -202,6 +245,13 @@ function goToTraffic(){
 }
 function goToRca(){
   window.location.href = "/rca.html";
+}
+function goToLogs(){
+  window.location.href = "/admin-logs.html";
+}
+
+function escapeHtml(v){
+  return String(v ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
 /* STATE */
@@ -321,104 +371,197 @@ async function saveChannels(){
 }
 
 /* CHANNELS */
-async function loadChannels(){
-  const res = await authFetch("/admin/channels");
-  const channels = await res.json();
+let channelData = [];
+const DEFAULT_PLATFORMS = ["Samsung", "LG", "Xiaomi"];
 
-  allChannels = channels.map(c => c.channel);
+async function loadPlatformSuggestions(){
+  let names = [...DEFAULT_PLATFORMS];
+  try {
+    const res = await authFetch("/admin/platforms");
+    if (res.ok) {
+      const list = await res.json();
+      names = [...new Set([...list.map(p => p.name), ...DEFAULT_PLATFORMS])];
+    }
+  } catch { /* defaults are fine */ }
+  document.getElementById("platformSuggestions").innerHTML =
+    names.map(n => `<option value="${escapeHtml(n)}"></option>`).join("");
+}
 
-  const box = document.getElementById("channelList");
-  box.innerHTML="";
+/* ---- platform row editor (used by create + edit) ---- */
+function addPlatformRow(containerId, name = "", channelId = ""){
+  const row = document.createElement("div");
+  row.className = "platform-row";
+  row.innerHTML = `
+    <input class="pf-name" list="platformSuggestions" placeholder="e.g. Samsung" value="${escapeHtml(name)}">
+    <input class="pf-id" placeholder="amg01448-samsungin-…" value="${escapeHtml(channelId)}">
+    <button type="button" class="icon-btn" title="Remove platform">×</button>
+  `;
+  row.querySelector(".icon-btn").onclick = () => row.remove();
+  document.getElementById(containerId).appendChild(row);
+  if (!name) row.querySelector(".pf-name").focus();
+}
 
-  channels.forEach(c=>{
-    const platforms = c.platforms || {};
+function setPlatformRows(containerId, platforms){
+  const box = document.getElementById(containerId);
+  box.innerHTML = "";
+  const entries = Object.entries(platforms || {});
+  if (!entries.length) addPlatformRow(containerId);
+  entries.forEach(([n, id]) => addPlatformRow(containerId, n, id));
+}
 
-    box.innerHTML += `
-      <div style="display:flex; justify-content:space-between; padding:12px; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px;">
-        <div>
-          <strong>${c.channel}</strong><br>
-          <span style="font-size:13px; color:#6b7280;">
-            ${Object.keys(platforms).length
-              ? Object.entries(platforms).map(([p,id]) => `${p}: ${id}`).join("<br>")
-              : "No platform IDs added"}
-          </span>
-        </div>
+/* Reads rows, validates, returns { platforms: [{name, channelId}], errors } */
+function readPlatformRows(containerId){
+  const rows = [...document.querySelectorAll(`#${containerId} .platform-row`)];
+  const platforms = [];
+  const errors = [];
+  const seen = new Set();
 
-        <div style="display:flex; gap:8px;">
-          <button onclick="openChannelEditModal('${c.channel}')">Edit</button>
-          <button class="danger" onclick="deleteChannel('${c.channel}')">Delete</button>
-        </div>
-      </div>
-    `;
+  rows.forEach(row => {
+    const nameEl = row.querySelector(".pf-name");
+    const idEl = row.querySelector(".pf-id");
+    nameEl.classList.remove("invalid"); idEl.classList.remove("invalid");
+
+    const name = nameEl.value.trim().replace(/\s+/g, " ");
+    const channelId = idEl.value.trim();
+    if (!name && !channelId) return;                 // empty row: ignore
+
+    if (!name) { nameEl.classList.add("invalid"); errors.push(`Platform name missing for ID "${channelId}"`); return; }
+    if (!channelId) { idEl.classList.add("invalid"); errors.push(`Channel ID missing for ${name}`); return; }
+    if (/\s/.test(channelId)) { idEl.classList.add("invalid"); errors.push(`Channel ID for ${name} contains spaces`); return; }
+    if (name.includes(".") || name.includes("$")) { nameEl.classList.add("invalid"); errors.push(`Platform name "${name}" can't contain "." or "$"`); return; }
+    if (seen.has(name.toLowerCase())) { nameEl.classList.add("invalid"); errors.push(`${name} is listed twice`); return; }
+
+    seen.add(name.toLowerCase());
+    platforms.push({ name, channelId });
   });
 
+  return { platforms, errors };
+}
+
+function showFormError(id, msg){
+  const el = document.getElementById(id);
+  el.textContent = msg || "";
+  el.style.display = msg ? "block" : "none";
+}
+
+async function loadChannels(){
+  const res = await authFetch("/admin/channels");
+  channelData = await res.json();
+  allChannels = channelData.map(c => c.channel);
+
+  renderChannelList();
+  loadPlatformSuggestions();
   loadUsers();
 }
 
+function renderChannelList(){
+  const q = (document.getElementById("channelSearch").value || "").trim().toLowerCase();
+  const box = document.getElementById("channelList");
+
+  const list = channelData.filter(c => !q ||
+    c.channel.toLowerCase().includes(q) ||
+    Object.keys(c.platforms || {}).some(p => p.toLowerCase().includes(q)));
+
+  document.getElementById("channelCount").textContent =
+    q ? `${list.length} of ${channelData.length}` : `${channelData.length}`;
+
+  if (!list.length) {
+    box.innerHTML = `<div class="muted">${channelData.length ? "No channels match." : "No channels yet."}</div>`;
+    return;
+  }
+
+  box.innerHTML = list.map(c => {
+    const entries = Object.entries(c.platforms || {});
+    return `
+      <div class="channel-item">
+        <div>
+          <strong>${escapeHtml(c.channel)}</strong>
+          <span class="pf-count">${entries.length} platform${entries.length === 1 ? "" : "s"}</span>
+          <div class="pf-list">
+            ${entries.length
+              ? entries.map(([p, id]) => `<span class="pf-chip">${escapeHtml(p)}<code>${escapeHtml(id)}</code></span>`).join("")
+              : `<span class="muted">No platforms added — users can't upload promos to this channel yet.</span>`}
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:flex-start;">
+          <button data-channel="${escapeHtml(c.channel)}" onclick="openChannelEditModal(this.dataset.channel)">Edit platforms</button>
+          <button class="danger" data-channel="${escapeHtml(c.channel)}" onclick="deleteChannel(this.dataset.channel)">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
 async function createChannel(){
+  showFormError("createChannelError", "");
   const name = newChannel.value.trim();
-  const samsung = samsungId.value.trim();
-  const xiaomi = xiaomiId.value.trim();
-  const lg = lgId.value.trim();
+  if (!name) return showFormError("createChannelError", "Channel name required");
 
-  if(!name) return alert("Channel name required");
+  const { platforms, errors } = readPlatformRows("newPlatformRows");
+  if (errors.length) return showFormError("createChannelError", errors.join("\n"));
 
-  await authFetch("/admin/channels",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ channel:name, samsung, xiaomi, lg })
+  if (!platforms.length &&
+      !confirm(`Create "${name}" without any platforms? Users won't be able to upload promos to it until platforms are added.`)) {
+    return;
+  }
+
+  const res = await authFetch("/admin/channels", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: name, platforms })
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showFormError("createChannelError", (data.errors || [data.error || "Failed to create channel"]).join("\n"));
 
-  newChannel.value="";
-  samsungId.value="";
-  xiaomiId.value="";
-  lgId.value="";
-
+  newChannel.value = "";
+  setPlatformRows("newPlatformRows", {});
   loadChannels();
 }
 
 async function deleteChannel(name){
-  if(!confirm("Delete channel?")) return;
-  await authFetch("/admin/channels/" + name,{ method:"DELETE" });
+  if (!confirm(`Delete channel "${name}"? It will also be removed from every user's channel list.`)) return;
+  const res = await authFetch("/admin/channels/" + encodeURIComponent(name), { method: "DELETE" });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    alert(data.error || "Failed to delete channel");
+  }
   loadChannels();
 }
 
 /* CHANNEL EDIT */
-async function openChannelEditModal(name){
-  const res = await authFetch("/admin/channels");
-  const channels = await res.json();
-
-  const channel = channels.find(c => c.channel === name);
+function openChannelEditModal(name){
+  const channel = channelData.find(c => c.channel === name);
+  if (!channel) return;
   editingChannel = name;
 
-  const platforms = channel.platforms || {};
-
-  editSamsung.value = platforms.Samsung || "";
-  editXiaomi.value = platforms.Xiaomi || "";
-  editLg.value = platforms.LG || "";
-
-  document.getElementById("channelEditModal").style.display="flex";
+  document.getElementById("editChannelName").textContent = name;
+  setPlatformRows("editPlatformRows", channel.platforms);
+  showFormError("editChannelError", "");
+  document.getElementById("channelEditModal").style.display = "flex";
 }
 
 function closeChannelModal(){
-  document.getElementById("channelEditModal").style.display="none";
+  document.getElementById("channelEditModal").style.display = "none";
 }
 
 async function saveChannelEdit(){
-  await authFetch("/admin/channels/" + editingChannel,{
-    method:"PUT",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({
-      samsung: editSamsung.value.trim(),
-      xiaomi: editXiaomi.value.trim(),
-      lg: editLg.value.trim()
-    })
+  showFormError("editChannelError", "");
+  const { platforms, errors } = readPlatformRows("editPlatformRows");
+  if (errors.length) return showFormError("editChannelError", errors.join("\n"));
+
+  const res = await authFetch("/admin/channels/" + encodeURIComponent(editingChannel), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ platforms })
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return showFormError("editChannelError", (data.errors || [data.error || "Failed to save"]).join("\n"));
 
   closeChannelModal();
   loadChannels();
 }
 
+setPlatformRows("newPlatformRows", {});
 loadChannels();
 </script>
 
@@ -437,12 +580,16 @@ loadChannels();
 
 <!-- CHANNEL EDIT MODAL -->
 <div id="channelEditModal" class="modal">
-  <div class="modal-box">
-    <h3>Edit Channel</h3>
+  <div class="modal-box" style="width:680px; max-width:95vw;">
+    <h3 style="margin-top:0;">Edit platforms — <span id="editChannelName"></span></h3>
 
-    <input id="editSamsung" placeholder="Samsung ID">
-    <input id="editXiaomi" placeholder="Xiaomi ID">
-    <input id="editLg" placeholder="LG ID">
+    <div class="platform-editor">
+      <div class="platform-editor-head"><span>Platform</span><span>StormForge channel ID</span><span></span></div>
+      <div id="editPlatformRows"></div>
+      <button type="button" class="ghost" onclick="addPlatformRow('editPlatformRows')">+ Add platform</button>
+      <div class="hint">Removing a platform here only stops it being offered for uploads; it doesn't change anything in StormForge.</div>
+    </div>
+    <div id="editChannelError" class="form-error"></div>
 
     <div style="margin-top:15px;">
       <button onclick="closeChannelModal()">Cancel</button>
@@ -450,6 +597,8 @@ loadChannels();
     </div>
   </div>
 </div>
+
+<datalist id="platformSuggestions"></datalist>
 
 </body>
 </html>

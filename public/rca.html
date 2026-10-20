@@ -94,6 +94,12 @@
 
     .field input:focus { outline: none; border-color: var(--primary); }
     .field-sm input { width: 80px; }
+    .field select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; font-family: inherit; }
+    .field select:focus { outline: none; border-color: var(--primary); }
+    .interval-note { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+    .ss-window { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+    td.chg-down { color: var(--red); font-weight: 700; }
+    td.chg-up { color: var(--green); }
 
     .hidden { display: none; }
 
@@ -414,6 +420,7 @@
     <h2>Impression RCA</h2>
     <div class="topbar-right">
       <span id="userEmail"></span>
+      <a href="/render-rate-rca.html"><button class="btn btn-outline btn-sm">Render Rate RCA</button></a>
       <a href="/index.html"><button class="btn btn-outline btn-sm">Back to App</button></a>
       <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
     </div>
@@ -462,10 +469,24 @@
           <label>Days</label>
           <input type="number" id="days" value="15" min="2" max="30" />
         </div>
+        <div class="field">
+          <label>Demand interval</label>
+          <select id="interval" onchange="onIntervalChange()">
+            <option value="day">Daily</option>
+            <option value="hour">Hourly</option>
+          </select>
+        </div>
+        <div class="field field-sm hidden" id="hoursField">
+          <label>Hours</label>
+          <input type="number" id="hours" value="24" min="1" max="72" />
+        </div>
         <button class="btn" id="investigateBtn" onclick="runInvestigation()" disabled>
           Run RCA
         </button>
         <span id="selectedTagLabel" style="color:var(--muted); font-size:13px;"></span>
+      </div>
+      <div class="interval-note" id="intervalNote">
+        Daily: the last N days of demand data, first half compared with second half.
       </div>
     </div>
   </div>
@@ -502,7 +523,7 @@
       <div class="tabs">
         <button class="tab-btn active" data-tab="athenaTab" onclick="switchTab('athenaTab')">Athena Funnel</button>
         <button class="tab-btn" data-tab="acuTab" onclick="switchTab('acuTab')">Grafana ACU</button>
-        <button class="tab-btn" data-tab="springserveTab" onclick="switchTab('springserveTab')">SpringServe Demand</button>
+        <button class="tab-btn" data-tab="springserveTab" onclick="switchTab('springserveTab')" id="springserveTabBtn">SpringServe Demand</button>
       </div>
 
       <div id="athenaTab" class="tab-panel active">
@@ -797,9 +818,20 @@
     updateRunButtonState();
   }
 
+  function onIntervalChange() {
+    const hourly = document.getElementById("interval").value === "hour";
+    document.getElementById("hoursField").classList.toggle("hidden", !hourly);
+    document.getElementById("intervalNote").textContent = hourly
+      ? "Hourly: the last N hours of SpringServe demand data, each hour compared with the same hour on previous days " +
+        "(up to 7). ACU and Athena funnel stay daily over the Days window."
+      : "Daily: the last N days of demand data, first half compared with second half.";
+  }
+
   async function runInvestigation() {
     if (!currentChannelId || !selectedDemandTagId) return;
     const days = document.getElementById("days").value || 15;
+    const interval = document.getElementById("interval").value || "day";
+    const hours = document.getElementById("hours").value || 24;
 
     document.getElementById("investigateBtn").disabled = true;
     document.getElementById("investigateSpinner").classList.remove("hidden");
@@ -808,7 +840,8 @@
 
     try {
       const url = `/rca/investigate?channelId=${encodeURIComponent(currentChannelId)}`
-        + `&demandTagId=${selectedDemandTagId}&days=${days}`;
+        + `&demandTagId=${selectedDemandTagId}&days=${days}`
+        + `&interval=${interval}` + (interval === "hour" ? `&hours=${hours}` : "");
       const res = await fetch(url, { headers: authHeaders() });
       const data = await res.json();
 
@@ -878,7 +911,9 @@
     renderDiagnostics(data);
     renderAthenaTable((data.athena && data.athena.summary && data.athena.summary.daily) || []);
     renderAcuTable((data.acu && data.acu.daily) || [], (data.acu && data.acu.perSetup) || []);
-    renderSpringserveTable((data.springserve && data.springserve.daily) || []);
+    renderSpringserveTable((data.springserve && data.springserve.daily) || [], data.springserve || {});
+    document.getElementById("springserveTabBtn").textContent =
+      data.springserve && data.springserve.interval === "hour" ? "SpringServe Demand (hourly)" : "SpringServe Demand";
   }
 
   function switchTab(tabId) {
@@ -952,19 +987,49 @@
     table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
   }
 
-  function renderSpringserveTable(dailyRows) {
+  function renderSpringserveTable(dailyRows, ss = {}) {
     const table = document.getElementById("springserveTable");
+    const hourly = ss.interval === "hour";
+    const w = ss.window || {};
+
+    // Window caption above the table
+    let caption = document.getElementById("ssWindow");
+    if (!caption) {
+      caption = document.createElement("div");
+      caption.id = "ssWindow";
+      caption.className = "ss-window";
+      table.parentElement.parentElement.insertBefore(caption, table.parentElement);
+    }
+    caption.textContent = !w.from ? "" : hourly
+      ? `Hourly · ${w.from} → ${w.to} (${w.hours}h) · each hour vs. the same hour on the previous ${w.baselineDays} day(s) · ${w.comparedHours} hour(s) compared. Times as returned by SpringServe.`
+      : `Daily · ${w.from} → ${w.to} (${w.days} days) · first half vs. second half (line marks the split).`;
 
     if (!dailyRows.length) {
-      table.innerHTML = `<tr><td style="color:var(--muted); padding:16px;">No SpringServe tag performance data returned for this window.</td></tr>`;
+      table.innerHTML = `<tr><td style="color:var(--muted); padding:16px;">No SpringServe ${hourly ? "hourly" : ""} tag performance data returned for this window.</td></tr>`;
       return;
     }
-
-    const mid = Math.floor(dailyRows.length / 2);
 
     // Counts first, then rates (already converted to % server-side)
     const cols = ["usable_requests", "has_ads", "opportunities", "impressions", "fill_rate", "opportunity_fill_rate"];
 
+    if (hourly) {
+      const head = `<tr><th>Hour</th>${cols.map(c => `<th>${humanize(c)}</th>`).join("")}<th>Impressions baseline</th><th>vs. baseline</th></tr>`;
+      const body = dailyRows.map((row) => {
+        const chg = row.impressionsChangePct;
+        const cls = chg === null || chg === undefined ? "" : chg <= -15 ? "chg-down" : chg >= 15 ? "chg-up" : "";
+        return `
+          <tr>
+            <td>${escapeHtml(row.ts)}</td>
+            ${cols.map(c => `<td>${fmtNum(row[c])}${c.includes("rate") ? "%" : ""}</td>`).join("")}
+            <td>${row.baseline ? fmtNum(row.baseline.impressions) : "—"}</td>
+            <td class="${cls}">${row.baseline ? fmtPct(chg) : "no baseline"}</td>
+          </tr>`;
+      }).join("");
+      table.innerHTML = `<thead>${head}</thead><tbody>${body}</tbody>`;
+      return;
+    }
+
+    const mid = Math.floor(dailyRows.length / 2);
     const head = `<tr><th>Date</th>${cols.map(c => `<th>${humanize(c)}</th>`).join("")}</tr>`;
 
     const body = dailyRows.map((row, i) => `

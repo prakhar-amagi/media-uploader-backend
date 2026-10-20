@@ -6,6 +6,8 @@ const rcaInvestigationSchema = new mongoose.Schema({
   demandTagId:     { type: Number, required: true },
   daysAnalyzed:    { type: Number },
   dateRange:       { type: String },
+  interval:        { type: String, default: "day" },   // SpringServe analysis: "day" | "hour"
+  hoursAnalyzed:   { type: Number },
 
   status:          { type: String },   // e.g. "DEMAND_OPPORTUNITY_DECLINE"
   confidence:      { type: String },   // "HIGH" | "MEDIUM" | "LOW"

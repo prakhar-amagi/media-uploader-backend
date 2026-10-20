@@ -82,11 +82,32 @@ const SPRINGSERVE_RATE_FIELDS = [
   "click_through_rate",
 ];
 
+export const SPRINGSERVE_INTERVALS = ["day", "hour"];
+
+/** Parse SpringServe's ymdh ("2026-10-03 10:00:00", ISO, …) to epoch ms (UTC). */
+function parseYmdh(ymdh) {
+  if (!ymdh) return NaN;
+  let s = String(ymdh).trim().replace(" ", "T");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) s += "T00:00:00";
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(s)) s += ":00:00";
+  if (!/(Z|[+-]\d{2}:?\d{2})$/.test(s)) s += "Z";
+  return Date.parse(s);
+}
+
 export function normalizeSpringservePerformance(rawResponse, interval = "day") {
-  const rows = rawResponse?.[interval] || rawResponse?.day || [];
+  // Only read the key matching the requested interval. Falling back to
+  // `day` when `hour` is missing would silently mislabel daily rows as hours.
+  const rows = rawResponse?.[interval] || [];
 
   return rows.map((row) => {
-    const out = { date: (row.ymdh || "").slice(0, 10) };
+    const tsMs = parseYmdh(row.ymdh);
+    const iso = Number.isNaN(tsMs) ? String(row.ymdh || "") : new Date(tsMs).toISOString();
+    const out = {
+      date: iso.slice(0, 10),
+      ts: interval === "hour" ? `${iso.slice(0, 10)} ${iso.slice(11, 13)}:00` : iso.slice(0, 10),
+      hour: interval === "hour" && !Number.isNaN(tsMs) ? new Date(tsMs).getUTCHours() : null,
+      _ms: tsMs,
+    };
 
     for (const field of SPRINGSERVE_COUNT_FIELDS) {
       out[field] = row[field] ?? 0;
@@ -98,7 +119,146 @@ export function normalizeSpringservePerformance(rawResponse, interval = "day") {
     }
 
     return out;
-  }).sort((a, b) => a.date.localeCompare(b.date));
+  }).sort((a, b) => (a._ms - b._ms) || a.ts.localeCompare(b.ts));
+}
+
+/**
+ * Trim to the requested window by TIME, not row count (the API ignores
+ * date_range and returns more than asked for).
+ *   day:  last `days` calendar days present in the data
+ *   hour: last `hours` hours, ending at the latest row
+ */
+export function trimSpringserveWindow(rows, { interval = "day", days = 30, hours = 24 } = {}) {
+  if (!rows.length) return rows;
+
+  if (interval === "hour") {
+    const latest = rows[rows.length - 1]._ms;
+    const from = latest - (Number(hours) - 1) * 3600 * 1000;
+    return rows.filter((r) => r._ms >= from);
+  }
+
+  const n = Number(days);
+  if (!n || n <= 0 || n >= rows.length) return rows;
+  return rows.slice(-n);
+}
+
+/**
+ * Hourly comparison. Halves of an hourly series compare different times
+ * of day (night vs. prime time), so instead each hour in the window is
+ * compared with the SAME clock hour on previous days, averaged over up to
+ * `maxBaselineDays` days. Output shape matches summarizeSpringservePerformance
+ * so analyzeDemandTagPerformance() works unchanged.
+ */
+export function summarizeSpringserveHourly(allRows, { hours = 24, maxBaselineDays = 7 } = {}) {
+  const current = trimSpringserveWindow(allRows, { interval: "hour", hours });
+  if (!current.length) {
+    return { daily: [], pastWindow: null, currentWindow: null, changePercent: {}, interval: "hour" };
+  }
+
+  const byMs = new Map(allRows.map((r) => [r._ms, r]));
+  const DAY = 24 * 3600 * 1000;
+  const fields = [...SPRINGSERVE_COUNT_FIELDS, ...SPRINGSERVE_RATE_FIELDS];
+  let baselineDaysUsed = 0;
+
+  const rowsWithBaseline = current.map((row) => {
+    const prior = [];
+    for (let k = 1; k <= maxBaselineDays; k++) {
+      const p = byMs.get(row._ms - k * DAY);
+      if (p) { prior.push(p); baselineDaysUsed = Math.max(baselineDaysUsed, k); }
+    }
+    if (!prior.length) return { ...row, baseline: null, baselineDays: 0 };
+
+    const baseline = {};
+    for (const f of fields) {
+      baseline[f] = Number((prior.reduce((acc, p) => acc + (p[f] ?? 0), 0) / prior.length).toFixed(2));
+    }
+    return {
+      ...row,
+      baseline,
+      baselineDays: prior.length,
+      impressionsChangePct: pctChange({ current_value: row.impressions, past_value: baseline.impressions }),
+    };
+  });
+
+  // Only hours that have a baseline count towards the comparison.
+  const compared = rowsWithBaseline.filter((r) => r.baseline);
+  if (!compared.length) {
+    return {
+      daily: rowsWithBaseline, pastWindow: null, currentWindow: null, changePercent: {},
+      interval: "hour", baselineDays: 0, comparedHours: 0,
+      note: "No earlier days in the data to compare these hours against.",
+    };
+  }
+
+  const pastWindow = {};
+  const currentWindow = {};
+  const changePercent = {};
+
+  for (const f of SPRINGSERVE_COUNT_FIELDS) {
+    currentWindow[f] = compared.reduce((a, r) => a + (r[f] ?? 0), 0);
+    pastWindow[f] = Number(compared.reduce((a, r) => a + r.baseline[f], 0).toFixed(2));
+    changePercent[f] = pctChange({ current_value: currentWindow[f], past_value: pastWindow[f] });
+  }
+  for (const f of SPRINGSERVE_RATE_FIELDS) {
+    currentWindow[f] = Number((compared.reduce((a, r) => a + (r[f] ?? 0), 0) / compared.length).toFixed(2));
+    pastWindow[f] = Number((compared.reduce((a, r) => a + r.baseline[f], 0) / compared.length).toFixed(2));
+    changePercent[f] = pctChange({ current_value: currentWindow[f], past_value: pastWindow[f] });
+  }
+
+  return {
+    daily: rowsWithBaseline,
+    pastWindow,
+    currentWindow,
+    changePercent,
+    interval: "hour",
+    baselineDays: baselineDaysUsed,
+    comparedHours: compared.length,
+  };
+}
+
+const stripInternal = (rows) => rows.map(({ _ms, ...r }) => r);
+
+/**
+ * One entry point for both intervals.
+ *   day:  last `days` days, first half vs second half (unchanged behaviour)
+ *   hour: last `hours` hours vs the same hours on previous days
+ */
+export function analyzeSpringserveSeries(raw, { interval = "day", days = 30, hours = 24 } = {}) {
+  const all = normalizeSpringservePerformance(raw, interval);
+
+  if (interval === "hour") {
+    const summary = summarizeSpringserveHourly(all, { hours });
+    const rows = stripInternal(summary.daily);
+    return {
+      interval,
+      rows,
+      summary: { ...summary, daily: rows },
+      window: {
+        hours: Number(hours),
+        from: rows[0]?.ts ?? null,
+        to: rows[rows.length - 1]?.ts ?? null,
+        baselineDays: summary.baselineDays ?? 0,
+        comparedHours: summary.comparedHours ?? 0,
+        comparison: "same hours on previous days",
+        rowsReturnedByApi: all.length,
+      },
+    };
+  }
+
+  const trimmed = stripInternal(trimSpringserveWindow(all, { interval, days }));
+  const summary = summarizeSpringservePerformance(trimmed);
+  return {
+    interval,
+    rows: trimmed,
+    summary,
+    window: {
+      days: Number(days),
+      from: trimmed[0]?.date ?? null,
+      to: trimmed[trimmed.length - 1]?.date ?? null,
+      comparison: "first half vs second half",
+      rowsReturnedByApi: all.length,
+    },
+  };
 }
 
 /**

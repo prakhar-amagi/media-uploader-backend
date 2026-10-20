@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <script src="/auth-guard.js"></script>
+  <title>Render Rate RCA</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --orange: #f97316;
+      --mono: "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; min-width: 0; }
+    body { font-family: Inter, Arial, sans-serif; background: var(--bg); margin: 0; padding: 40px; color: var(--text); }
+
+    .container { max-width: 1180px; margin: auto; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; gap: 12px; flex-wrap: wrap; }
+    .topbar h2 { margin: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    #userEmail { color: var(--muted); font-size: 14px; }
+
+    .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-weight: 600; font-size: 14px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-outline { background: transparent; color: var(--primary); border: 1.5px solid var(--primary); }
+
+    .card { background: var(--card); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); }
+    .card h3 { margin: 0 0 16px 0; font-size: 16px; }
+    .card h4 { margin: 18px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .card-sub { font-size: 13px; color: var(--muted); margin: -10px 0 14px; }
+
+    .input-row { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
+    .field label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 5px; }
+    .field input, .field select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; font-family: inherit; }
+    .field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
+    .field-wide input { width: 420px; max-width: 100%; }
+
+    details.override { margin-top: 14px; font-size: 13px; }
+    details.override summary { cursor: pointer; color: var(--primary); font-weight: 600; }
+    .cluster-checks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .cluster-checks label { border: 1.5px solid var(--border); border-radius: 8px; padding: 6px 10px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+    .cluster-checks .db { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+    .hidden { display: none !important; }
+    #spinner { text-align: center; color: var(--muted); padding: 24px; font-size: 15px; }
+    .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+    .muted { color: var(--muted); }
+    .mono { font-family: var(--mono); font-size: 12px; }
+
+    /* Verdict */
+    .verdict-card { border-radius: 14px; padding: 22px 26px; margin-bottom: 20px; border: 2px solid var(--border); }
+    .verdict-card.severity-high   { border-color: var(--red);    background: #fef2f2; }
+    .verdict-card.severity-medium { border-color: var(--orange); background: #fff7ed; }
+    .verdict-card.severity-low    { border-color: var(--yellow); background: #fffbeb; }
+    .verdict-card.severity-none   { border-color: var(--green);  background: #f0fdf4; }
+    .verdict-card.severity-gray   { border-color: var(--border); background: #f9fafb; }
+    .verdict-status { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; }
+    .verdict-headline { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+    .verdict-reason { font-size: 14px; line-height: 1.6; }
+    .verdict-meta { font-size: 12.5px; color: var(--muted); margin-top: 12px; }
+    .caveat { font-size: 12.5px; color: #92400e; margin-top: 6px; }
+
+    .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; vertical-align: middle; white-space: nowrap; }
+    .badge.HIGH   { background: #fee2e2; color: #991b1b; }
+    .badge.MEDIUM { background: #ffedd5; color: #9a3412; }
+    .badge.LOW    { background: #fef3c7; color: #92400e; }
+    .badge.NONE   { background: #f3f4f6; color: #6b7280; }
+    .conf.HIGH   { background: #dcfce7; color: #166534; }
+    .conf.MEDIUM { background: #fef3c7; color: #92400e; }
+    .conf.LOW    { background: #fee2e2; color: #991b1b; }
+    .conf.NONE   { background: #f3f4f6; color: #6b7280; }
+
+    .ev { display: inline-block; font-size: 10.5px; font-weight: 800; letter-spacing: .05em; padding: 3px 8px; border-radius: 6px; }
+    .ev.CONFIRMED { background: #fee2e2; color: #991b1b; }
+    .ev.OBSERVED { background: #ffedd5; color: #9a3412; }
+    .ev.NOT_OBSERVED { background: #dcfce7; color: #166534; }
+    .ev.INSUFFICIENT_EVIDENCE { background: #e0e7ff; color: #3730a3; }
+    .ev.QUERY_FAILED { background: #1f2937; color: #f9fafb; }
+
+    .owner { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: #f3f4f6; color: #374151; }
+    .owner.AD_PARTNER { background: #fef3c7; color: #92400e; }
+    .owner.SSAI_TRANSCODER, .owner.SSAI_TRACKER { background: #e0e7ff; color: #3730a3; }
+    .owner.TRACKER_ENDPOINT { background: #fce7f3; color: #9d174d; }
+
+    /* Factor cards */
+    .factor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .factor { background: var(--card); border-radius: 14px; padding: 18px 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); border-top: 4px solid var(--border); }
+    .factor.sev-HIGH { border-top-color: var(--red); }
+    .factor.sev-MEDIUM { border-top-color: var(--orange); }
+    .factor.sev-LOW { border-top-color: var(--yellow); }
+    .factor.sev-NONE { border-top-color: var(--green); }
+    .factor.primary { outline: 2px solid var(--primary); outline-offset: -2px; }
+    .factor-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 10px; }
+    .factor-title { font-weight: 700; font-size: 14px; }
+    .factor-num { font-size: 30px; font-weight: 800; line-height: 1.1; }
+    .factor-num small { font-size: 13px; font-weight: 600; color: var(--muted); }
+    .coverage { height: 6px; background: var(--bg); border-radius: 4px; margin: 10px 0 4px; overflow: hidden; }
+    .coverage > div { height: 100%; background: var(--primary); border-radius: 4px; }
+    .factor-detail { font-size: 13px; line-height: 1.5; margin-top: 8px; }
+    .factor-notes { margin: 8px 0 0; padding-left: 16px; font-size: 12px; color: var(--muted); }
+    .factor-notes li { margin-bottom: 3px; }
+    .primary-tag { font-size: 10.5px; font-weight: 800; color: var(--primary); letter-spacing: .05em; }
+
+    /* Tables */
+    .table-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { position: sticky; top: 0; text-align: left; padding: 9px 12px; background: var(--bg); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); white-space: nowrap; z-index: 1; }
+    td { padding: 9px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+    td.num, th.num { text-align: right; white-space: nowrap; }
+    tr:hover td { background: #fafafe; }
+    tr.clickable { cursor: pointer; }
+    .url { font-family: var(--mono); font-size: 11.5px; word-break: break-all; }
+    .empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+    .drop-hi { color: var(--red); font-weight: 700; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 12px; background: #eef2ff; color: var(--primary); margin: 1px 3px 1px 0; white-space: nowrap; }
+
+    .stat-row { display: flex; gap: 26px; flex-wrap: wrap; margin-bottom: 14px; }
+    .stat .v { font-size: 20px; font-weight: 800; }
+    .stat .l { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; }
+
+    .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1.5px solid var(--border); flex-wrap: wrap; }
+    .tab-btn { background: none; border: none; padding: 8px 16px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1.5px; }
+    .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Correlation */
+    .corr-break { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .corr-head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .corr-head .id { font-family: var(--mono); font-weight: 700; font-size: 13px; }
+    .corr-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; font-size: 12.5px; }
+    .corr-grid .k { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+
+    /* Report + logs */
+    .report-box, .log-box { background: #0f172a; color: #e2e8f0; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; border-radius: 10px; padding: 14px 16px; white-space: pre-wrap; word-break: break-word; max-height: 520px; overflow: auto; }
+    .log-box .ok { color: #4ade80; } .log-box .fail { color: #f87171; } .log-box .dim { color: #94a3b8; } .log-box .warn { color: #fbbf24; }
+    .report-actions { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 10px; }
+    details.sql summary { cursor: pointer; font-size: 12.5px; color: var(--primary); margin: 6px 0; }
+    details.sql pre { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 11.5px; overflow-x: auto; }
+
+    /* AWS gate (same as Impression RCA) */
+    .connect-box { border: 1.5px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .connect-box.connected { border-color: var(--green); background: #f0fdf4; }
+    .connect-box.disconnected { border-color: var(--red); background: #fef2f2; }
+    .connect-box.pending { border-color: var(--orange); background: #fff7ed; }
+    .connect-status-text { font-size: 14px; font-weight: 600; }
+    .connect-status-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+    .device-code-box { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 14px 20px; text-align: center; margin-top: 10px; }
+    .device-code-box .code { font-family: var(--mono); font-size: 26px; font-weight: 700; letter-spacing: 3px; color: #4ade80; margin: 6px 0; }
+    .device-code-box .hint { font-size: 12.5px; color: #94a3b8; }
+    .sso-callout { background: #fff7ed; border: 1.5px solid var(--orange); color: #7c2d12; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+    .sso-callout code { display: inline-block; background: #1e293b; color: #4ade80; padding: 4px 10px; border-radius: 6px; margin-top: 6px; font-family: var(--mono); font-size: 12.5px; user-select: all; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="topbar">
+    <h2>Render Rate RCA</h2>
+    <div class="topbar-right">
+      <span id="userEmail"></span>
+      <a href="/rca.html"><button class="btn btn-outline btn-sm">Impression RCA</button></a>
+      <a href="/index.html"><button class="btn btn-outline btn-sm">Back to App</button></a>
+      <button class="btn btn-outline btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>1. Channel and hour (UTC)</h3>
+    <div class="input-row">
+      <div class="field field-wide">
+        <label>Channel ID</label>
+        <input type="text" id="channelId" placeholder="amg01076-lightning-concerto-philipstvemea" />
+      </div>
+      <div class="field">
+        <label>Date (UTC)</label>
+        <input type="date" id="date" />
+      </div>
+      <div class="field">
+        <label>Hour (UTC)</label>
+        <select id="hour"></select>
+      </div>
+    </div>
+    <div id="ageHint" class="muted" style="font-size:12.5px; margin-top:10px;"></div>
+    <details class="override" id="clusterOverride">
+      <summary>Override clusters (default: resolved automatically from StormForge)</summary>
+      <div class="cluster-checks" id="clusterChecks"><span class="muted">Loading clusters…</span></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h3>2. Connect to Athena</h3>
+    <div id="connectBox" class="connect-box pending">
+      <div>
+        <div class="connect-status-text" id="connectStatusText">Checking AWS connection…</div>
+        <div class="connect-status-sub" id="connectStatusSub"></div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-outline" id="connectBtn" onclick="startAwsConnect()">Connect to AWS</button>
+        <button class="btn" id="analyzeBtn" onclick="runAnalysis()" disabled>Analyze render rate</button>
+      </div>
+    </div>
+    <div id="deviceCodeBox" class="device-code-box hidden">
+      <div class="hint">A new tab opened to AWS sign-in. Confirm this code matches:</div>
+      <div class="code" id="deviceUserCode"></div>
+      <div class="hint" id="deviceCodeHint">Waiting for approval…</div>
+    </div>
+  </div>
+
+  <div id="spinner" class="hidden">Running Rule Engine, Prefetcher and Tracker queries… <span id="elapsed">0s</span></div>
+  <div id="runError" class="error-box hidden"></div>
+
+  <div id="results" class="hidden">
+    <div id="verdictCard" class="verdict-card">
+      <div class="verdict-status" id="verdictStatus"></div>
+      <div class="verdict-headline"><span id="verdictHeadline"></span> <span id="confidenceBadge" class="badge conf"></span></div>
+      <div class="verdict-reason" id="verdictReason"></div>
+      <div class="verdict-meta" id="verdictMeta"></div>
+      <div id="verdictCaveats"></div>
+    </div>
+
+    <div class="factor-grid" id="factorGrid"></div>
+
+    <div class="card">
+      <h3>Evidence</h3>
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tabRule" onclick="switchTab('tabRule')">Rule Engine</button>
+        <button class="tab-btn" data-tab="tabDrop" onclick="switchTab('tabDrop')">User drop</button>
+        <button class="tab-btn" data-tab="tabTracker" onclick="switchTab('tabTracker')">Tracker</button>
+        <button class="tab-btn" data-tab="tabCorr" onclick="switchTab('tabCorr')">Correlated ad breaks</button>
+      </div>
+      <div id="tabRule" class="tab-panel active"></div>
+      <div id="tabDrop" class="tab-panel"></div>
+      <div id="tabTracker" class="tab-panel"></div>
+      <div id="tabCorr" class="tab-panel"></div>
+    </div>
+
+    <div class="card">
+      <h3>RCA report</h3>
+      <div class="report-actions">
+        <button class="btn btn-outline btn-sm" onclick="copyReport(this)">Copy report</button>
+        <button class="btn btn-outline btn-sm" onclick="downloadJson()">Download JSON</button>
+      </div>
+      <div class="report-box" id="reportBox"></div>
+    </div>
+
+    <div class="card">
+      <h3>Data source diagnostics</h3>
+      <div id="ssoCallouts"></div>
+      <div id="diagnosticsLog"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Recent render-rate investigations</h3>
+    <div class="table-wrap" style="max-height:360px;">
+      <table>
+        <thead><tr><th>When</th><th>Channel</th><th>Window (UTC)</th><th>Status</th><th>Confidence</th><th class="num">Transcode</th><th class="num">Drop breaks</th><th class="num">Tracker</th></tr></thead>
+        <tbody id="historyBody"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="historyReport" class="report-box hidden" style="margin-top:12px;"></div>
+  </div>
+
+</div>
+
+<script>
+  const EMAIL = localStorage.getItem("email");
+  document.getElementById("userEmail").textContent = EMAIL || "";
+
+  function logout() { window.authGuard.logout(); }
+  function authHeaders() { return window.authGuard.authHeaders(); }
+
+  function esc(v) {
+    return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  const fmt = (n) => (n === null || n === undefined || Number.isNaN(n) ? "–" : Number(n).toLocaleString());
+  const fmtPct = (n) => (n === null || n === undefined ? "–" : `${n}%`);
+
+  function timeAgo(iso) {
+    const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
+  function shortTime(ts) {
+    if (!ts) return "–";
+    const m = String(ts).match(/(\d{2}:\d{2}:\d{2})/);
+    return m ? m[1] : ts;
+  }
+
+  const STATUS_LABELS = {
+    RENDER_TRANSCODE_FAILURE:     { label: "Ad assets not transcoded",       severity: "high" },
+    RENDER_USER_DROP_AFTER_FETCH: { label: "Users dropped after ad fetch",   severity: "medium" },
+    RENDER_TRACKER_FAILURE:       { label: "Tracker invalid / not fired",    severity: "high" },
+    RENDER_MULTI_FACTOR:          { label: "Multiple contributing factors",  severity: "high" },
+    RENDER_NO_FACTOR_FOUND:       { label: "No render-rate factor found",    severity: "none" },
+    RENDER_NO_DATA:               { label: "No data",                        severity: "gray" },
+  };
+
+  const EV_LABELS = {
+    CONFIRMED: "CONFIRMED", OBSERVED: "OBSERVED", NOT_OBSERVED: "NOT OBSERVED",
+    INSUFFICIENT_EVIDENCE: "INSUFFICIENT EVIDENCE", QUERY_FAILED: "QUERY FAILED",
+  };
+
+  const OWNER_LABELS = {
+    AD_PARTNER: "Ad partner", SSAI_TRANSCODER: "SSAI transcoder", SSAI_TRACKER: "SSAI tracker",
+    TRACKER_ENDPOINT: "Tracker endpoint", UNKNOWN: "Unknown",
+  };
+  const owner = (o) => `<span class="owner ${esc(o)}">${esc(OWNER_LABELS[o] || o)}</span>`;
+
+  let lastResult = null;
+  let awsConnected = false;
+  let pollTimer = null;
+
+  /* ── Defaults: previous complete UTC hour ────────────────────────── */
+  (function initInputs() {
+    const sel = document.getElementById("hour");
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement("option");
+      o.value = h;
+      o.textContent = `${String(h).padStart(2, "0")}:00 – ${String((h + 1) % 24).padStart(2, "0")}:00`;
+      sel.appendChild(o);
+    }
+    const prev = new Date(Date.now() - 3600 * 1000);
+    document.getElementById("date").value = prev.toISOString().slice(0, 10);
+    document.getElementById("date").max = new Date().toISOString().slice(0, 10);
+    sel.value = prev.getUTCHours();
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("channelId")) document.getElementById("channelId").value = params.get("channelId");
+    if (params.get("date")) document.getElementById("date").value = params.get("date");
+    if (params.get("hour")) sel.value = params.get("hour");
+  })();
+
+  let limits = { maxDataAgeDays: 0, oldestAllowedDate: null };
+
+  async function loadLimits() {
+    try {
+      const res = await fetch("/rca/render-rate/limits", { headers: authHeaders() });
+      limits = await res.json();
+      if (limits.oldestAllowedDate) {
+        const dateEl = document.getElementById("date");
+        dateEl.min = limits.oldestAllowedDate;
+        if (dateEl.value && dateEl.value < limits.oldestAllowedDate) dateEl.value = limits.oldestAllowedDate;
+        document.getElementById("ageHint").textContent =
+          `Raw logs older than ${limits.maxDataAgeDays} days can't be queried (the account's Athena validator cancels them). ` +
+          `Earliest date: ${limits.oldestAllowedDate}.`;
+      }
+    } catch { /* server still validates */ }
+  }
+
+  async function loadClusters() {
+    const box = document.getElementById("clusterChecks");
+    try {
+      const res = await fetch("/rca/render-rate/clusters", { headers: authHeaders() });
+      const list = await res.json();
+      box.innerHTML = list.map((c) => `
+        <label><input type="checkbox" value="${esc(c.key)}" /> ${esc(c.key)} <span class="db">${esc(c.database)}</span></label>
+      `).join("");
+    } catch {
+      box.innerHTML = `<span class="muted">Could not load clusters.</span>`;
+    }
+  }
+
+  function selectedClusters() {
+    return [...document.querySelectorAll("#clusterChecks input:checked")].map((i) => i.value);
+  }
+
+  /* ── AWS SSO gate (same endpoints as Impression RCA) ─────────────── */
+  function updateRunButtonState() {
+    document.getElementById("analyzeBtn").disabled = !awsConnected;
+  }
+
+  async function checkAwsStatus() {
+    const box = document.getElementById("connectBox");
+    const textEl = document.getElementById("connectStatusText");
+    const subEl = document.getElementById("connectStatusSub");
+    const btn = document.getElementById("connectBtn");
+    box.className = "connect-box pending";
+    textEl.textContent = "Checking AWS connection…";
+    subEl.textContent = "";
+    try {
+      const res = await fetch("/rca/aws-sso/status", { headers: authHeaders() });
+      const data = await res.json();
+      awsConnected = !!data.connected;
+      if (data.connected) {
+        box.className = "connect-box connected";
+        textEl.textContent = "Connected to AWS";
+        subEl.textContent = `Account ${data.account} · ${data.arn || ""}`;
+        btn.textContent = "Reconnect";
+      } else {
+        box.className = "connect-box disconnected";
+        textEl.textContent = "Not connected to AWS";
+        subEl.textContent = data.error || "Athena queries will fail until you connect.";
+        btn.textContent = "Connect to AWS";
+      }
+    } catch (err) {
+      awsConnected = false;
+      box.className = "connect-box disconnected";
+      textEl.textContent = "Could not check AWS connection";
+      subEl.textContent = err.message;
+    }
+    updateRunButtonState();
+  }
+
+  async function startAwsConnect() {
+    const btn = document.getElementById("connectBtn");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/rca/aws-sso/connect", { method: "POST", headers: authHeaders(), body: JSON.stringify({}) });
+      const data = await res.json();
+      if (!res.ok) {
+        document.getElementById("connectStatusSub").textContent = data.error || "Failed to start AWS connection.";
+        btn.disabled = false;
+        return;
+      }
+      window.open(data.verificationUriComplete, "_blank");
+      document.getElementById("deviceCodeBox").classList.remove("hidden");
+      document.getElementById("deviceUserCode").textContent = data.userCode;
+      document.getElementById("deviceCodeHint").textContent = "Waiting for approval in the new tab…";
+      pollAwsConnect(data.sessionId, data.interval || 5);
+    } catch (err) {
+      document.getElementById("connectStatusSub").textContent = err.message;
+      btn.disabled = false;
+    }
+  }
+
+  function pollAwsConnect(sessionId, intervalSeconds) {
+    if (pollTimer) clearTimeout(pollTimer);
+    const tick = async () => {
+      try {
+        const res = await fetch(`/rca/aws-sso/poll?sessionId=${encodeURIComponent(sessionId)}`, { headers: authHeaders() });
+        const data = await res.json();
+        if (data.status === "complete") {
+          document.getElementById("deviceCodeBox").classList.add("hidden");
+          document.getElementById("connectBtn").disabled = false;
+          await checkAwsStatus();
+          return;
+        }
+        if (data.status === "expired" || data.status === "error") {
+          document.getElementById("deviceCodeHint").textContent = data.error || "Connection failed. Try again.";
+          document.getElementById("connectBtn").disabled = false;
+          return;
+        }
+        pollTimer = setTimeout(tick, intervalSeconds * 1000);
+      } catch (err) {
+        document.getElementById("deviceCodeHint").textContent = err.message;
+        document.getElementById("connectBtn").disabled = false;
+      }
+    };
+    pollTimer = setTimeout(tick, intervalSeconds * 1000);
+  }
+
+  /* ── Run ─────────────────────────────────────────────────────────── */
+  async function runAnalysis() {
+    const channelId = document.getElementById("channelId").value.trim();
+    const date = document.getElementById("date").value;
+    const hour = Number(document.getElementById("hour").value);
+    const errBox = document.getElementById("runError");
+    errBox.classList.add("hidden");
+
+    if (!channelId) { showError("Enter a channel ID."); return; }
+    if (!date) { showError("Pick a date."); return; }
+    if (limits.oldestAllowedDate && date < limits.oldestAllowedDate) {
+      showError(`${date} is older than ${limits.maxDataAgeDays} days; the Athena validator would cancel these queries. Pick ${limits.oldestAllowedDate} or later.`);
+      return;
+    }
+
+    const btn = document.getElementById("analyzeBtn");
+    btn.disabled = true;
+    document.getElementById("results").classList.add("hidden");
+    const spinner = document.getElementById("spinner");
+    spinner.classList.remove("hidden");
+    const t0 = Date.now();
+    const timer = setInterval(() => {
+      document.getElementById("elapsed").textContent = `${Math.round((Date.now() - t0) / 1000)}s`;
+    }, 1000);
+
+    try {
+      const body = { channelId, date, hour };
+      const clusterKeys = selectedClusters();
+      if (clusterKeys.length) body.clusterKeys = clusterKeys;
+
+      const res = await fetch("/rca/render-rate/analyze", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) {
+        showError(`${data.error || "Analysis failed"}${data.detail ? ` — ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}` : ""}`);
+        return;
+      }
+      lastResult = data;
+      render(data);
+      history.replaceState(null, "", `?channelId=${encodeURIComponent(channelId)}&date=${date}&hour=${hour}`);
+      loadHistory();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      clearInterval(timer);
+      spinner.classList.add("hidden");
+      updateRunButtonState();
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("runError");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+  }
+
+  /* ── Render ──────────────────────────────────────────────────────── */
+  function render(d) {
+    renderVerdict(d);
+    renderFactors(d);
+    renderRuleEngine(d.ruleEngine, d.verdict.factors[0]);
+    renderUserDrop(d.userDrop, d.verdict.factors[1]);
+    renderTracker(d.tracker, d.verdict.factors[2]);
+    renderCorrelation(d.correlation);
+    document.getElementById("reportBox").textContent = d.report;
+    renderDiagnostics(d);
+    document.getElementById("results").classList.remove("hidden");
+  }
+
+  function renderVerdict(d) {
+    const v = d.verdict;
+    const meta = STATUS_LABELS[v.status] || { label: v.status, severity: "gray" };
+    document.getElementById("verdictCard").className = `verdict-card severity-${meta.severity}`;
+    document.getElementById("verdictStatus").textContent = meta.label;
+    document.getElementById("verdictHeadline").textContent = v.headline;
+    const cb = document.getElementById("confidenceBadge");
+    cb.className = `badge conf ${v.confidence}`;
+    cb.textContent = `${v.confidence} confidence`;
+    document.getElementById("verdictReason").textContent = v.reason;
+    const res = d.clusterResolution;
+    document.getElementById("verdictMeta").textContent =
+      `${d.input.channelId} · ${d.input.windowStart.slice(0, 16).replace("T", " ")} → ${d.input.windowEnd.slice(11, 16)} UTC · ` +
+      `clusters: ${d.input.clusters.join(", ")} (${res.source})` +
+      (res.unresolved?.length ? ` · unresolved setups: ${res.unresolved.join(", ")}` : "") +
+      ` · ${(d.elapsedMs / 1000).toFixed(1)}s`;
+    document.getElementById("verdictCaveats").innerHTML = v.caveats.map((c) => `<div class="caveat">⚠ ${esc(c)}</div>`).join("");
+  }
+
+  function renderFactors(d) {
+    const metric = {
+      RULE_ENGINE: (f) => [d.ruleEngine.transcodeFailures, `failures · ${d.ruleEngine.uniqueAssets} unique assets`],
+      USER_DROP: (f) => [d.userDrop.significantDropBreaks, `of ${d.userDrop.breaksAnalyzed} breaks ≥ ${d.userDrop.thresholdPct}% drop`],
+      TRACKER: (f) => [d.tracker.totalErrors, `errors · ${d.tracker.affectedAdBreaks} ad breaks`],
+    };
+    document.getElementById("factorGrid").innerHTML = d.verdict.factors.map((f) => {
+      const [n, sub] = f.status === "QUERY_FAILED" ? ["—", "query failed"] : metric[f.factor](f);
+      const isPrimary = d.verdict.primaryFactor === f.factor;
+      return `
+        <div class="factor sev-${f.severity} ${isPrimary ? "primary" : ""}">
+          <div class="factor-head">
+            <div>
+              ${isPrimary ? `<div class="primary-tag">PRIMARY FACTOR</div>` : ""}
+              <div class="factor-title">${esc(f.label)}</div>
+            </div>
+            <span class="ev ${f.status}">${EV_LABELS[f.status] || f.status}</span>
+          </div>
+          <div class="factor-num">${esc(fmt(n))} <small>${esc(sub)}</small></div>
+          ${f.coveragePct !== undefined && f.coveragePct !== null ? `
+            <div class="coverage"><div style="width:${Math.min(100, f.coveragePct)}%"></div></div>
+            <div class="muted" style="font-size:11.5px;">${f.coveragePct}% of the hour's ad breaks · severity <span class="badge ${f.severity}">${f.severity}</span></div>` : ""}
+          <div class="factor-detail">${esc(f.detail || "")}</div>
+          ${f.notes?.length ? `<ul class="factor-notes">${f.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+        </div>`;
+    }).join("");
+  }
+
+  function sigTable(sigs, title) {
+    if (!sigs?.length) return "";
+    return `
+      <h4>${esc(title)}</h4>
+      <div class="card-sub" style="margin:0 0 8px;">These didn't match any pattern in <span class="mono">src/rca/rules/renderRate/classifiers.js</span>. Add a pattern there to classify them.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Signature</th><th>Sample</th><th class="num">Count</th></tr></thead>
+        <tbody>${sigs.map((s) => `<tr><td class="mono">${esc(s.signature)}</td><td class="mono">${esc(s.sample)}</td><td class="num">${fmt(s.count)}</td></tr>`).join("")}</tbody>
+      </table></div>`;
+  }
+
+  function renderRuleEngine(re, factor) {
+    const el = document.getElementById("tabRule");
+    if (factor.status === "QUERY_FAILED") { el.innerHTML = `<div class="error-box">Rule Engine query failed: ${esc(factor.detail)}</div>`; return; }
+
+    const cats = re.byCategory.length ? `
+      <div class="table-wrap" style="max-height:none;"><table>
+        <thead><tr><th>Reason</th><th>Owner</th><th class="num">Occurrences</th><th class="num">Unique assets</th><th class="num">Ad breaks</th></tr></thead>
+        <tbody>${re.byCategory.map((c) => `<tr><td>${esc(c.label)}</td><td>${owner(c.owner)}</td><td class="num">${fmt(c.occurrences)}</td><td class="num">${fmt(c.uniqueAssets)}</td><td class="num">${fmt(c.adBreaks)}</td></tr>`).join("")}</tbody>
+      </table></div>` : `<div class="empty">No transcode failures.</div>`;
+
+    const assets = re.groupedAssets.length ? `
+      <h4>Failed ad assets — unique, by frequency${re.groupedAssetsTotal > re.groupedAssets.length ? ` (top ${re.groupedAssets.length} of ${re.groupedAssetsTotal})` : ""}</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Asset URL</th><th>Reason</th><th class="num">Occurrences</th><th class="num">Requests</th><th class="num">Breaks</th><th>Profiles</th><th>Seen (UTC)</th></tr></thead>
+        <tbody>${re.groupedAssets.map((a) => `
+          <tr>
+            <td class="url">${a.hasUrl ? esc(a.assetUrl) : `<span class="muted">${esc(a.assetKey)}</span>`}${a.creativeIds?.length ? `<div class="muted">creative: ${esc(a.creativeIds.join(", "))}</div>` : ""}</td>
+            <td>${esc(a.primaryLabel)}<br>${owner(a.owner)}${Object.keys(a.categories).length > 1 ? `<div class="muted" style="font-size:11px;">${esc(Object.entries(a.categories).map(([k, v]) => `${k}: ${v}`).join(", "))}</div>` : ""}</td>
+            <td class="num"><b>${fmt(a.occurrences)}</b></td>
+            <td class="num">${fmt(a.distinctRequests)}</td>
+            <td class="num">${fmt(a.distinctAdBreaks)}</td>
+            <td>${a.profiles.map((p) => `<span class="pill">${esc(p)}</span>`).join("") || "–"}</td>
+            <td class="mono">${esc(shortTime(a.firstSeen))}${a.lastSeen !== a.firstSeen ? ` → ${esc(shortTime(a.lastSeen))}` : ""}</td>
+          </tr>`).join("")}</tbody>
+      </table></div>` : "";
+
+    el.innerHTML = `
+      <div class="stat-row">
+        <div class="stat"><div class="v">${fmt(re.totalErrorRows)}</div><div class="l">Error rows</div></div>
+        <div class="stat"><div class="v">${fmt(re.transcodeFailures)}</div><div class="l">Transcode failures</div></div>
+        <div class="stat"><div class="v">${fmt(re.uniqueAssets)}</div><div class="l">Unique assets</div></div>
+        <div class="stat"><div class="v">${fmt(re.affectedAdBreaks)}</div><div class="l">Ad breaks</div></div>
+        <div class="stat"><div class="v">${fmt(re.unclassifiedErrors)}</div><div class="l">Unclassified</div></div>
+      </div>
+      ${cats}${assets}${sigTable(re.unclassifiedSignatures, "Unclassified Rule Engine errors")}`;
+  }
+
+  let showAllBreaks = false;
+  function renderUserDrop(ud, factor) {
+    const el = document.getElementById("tabDrop");
+    if (factor.status === "QUERY_FAILED") { el.innerHTML = `<div class="error-box">User-drop query failed: ${esc(factor.detail)}</div>`; return; }
+
+    const rows = showAllBreaks ? ud.breaks : ud.significantDrops;
+    el.innerHTML = `
+      <div class="stat-row">
+        <div class="stat"><div class="v">${fmt(ud.breaksAnalyzed)}</div><div class="l">Ad breaks</div></div>
+        <div class="stat"><div class="v">${fmt(ud.significantDropBreaks)}</div><div class="l">Breaks ≥ ${ud.thresholdPct}% drop</div></div>
+        <div class="stat"><div class="v">${fmt(ud.totalUsersDropped)}</div><div class="l">Users dropped</div></div>
+        <div class="stat"><div class="v">${fmtPct(ud.weightedDropPct)}</div><div class="l">Hour-weighted drop</div></div>
+        <div class="stat"><div class="v">${fmtPct(ud.medianDropPct)}</div><div class="l">Median drop</div></div>
+        <div class="stat"><div class="v">${fmt(ud.breaksMissingSnapshot)}</div><div class="l">Missing snapshot</div></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-outline btn-sm" onclick="showAllBreaks=!showAllBreaks; renderUserDrop(lastResult.userDrop, lastResult.verdict.factors[1])">
+          ${showAllBreaks ? `Show only drops ≥ ${ud.thresholdPct}%` : `Show all ${ud.breaks.length} breaks`}
+        </button>
+      </div>
+      ${rows.length ? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>Ad break</th><th>Opportunity (UTC)</th><th>Type</th><th class="num">Duration</th><th class="num">Before</th><th class="num">After</th><th class="num">Drop</th><th class="num">Drop %</th><th class="num">After lag</th></tr></thead>
+        <tbody>${rows.map((b) => `
+          <tr>
+            <td class="mono">${esc(b.adBreakId)}</td>
+            <td class="mono">${esc(shortTime(b.opportunityTime))}</td>
+            <td>${esc(b.breakType || "–")}</td>
+            <td class="num">${fmt(b.durationSeconds)}s</td>
+            <td class="num">${fmt(b.activeUsersBefore)}</td>
+            <td class="num">${fmt(b.activeUsersAfter)}</td>
+            <td class="num">${fmt(b.userDrop)}</td>
+            <td class="num ${b.significant ? "drop-hi" : ""}">${fmtPct(b.userDropPct)}</td>
+            <td class="num">${b.afterSnapshotLagSec === null ? "–" : `${b.afterSnapshotLagSec}s`}${b.afterSnapshotStale ? " ⚠" : ""}</td>
+          </tr>`).join("")}</tbody>
+      </table></div>` : `<div class="empty">${showAllBreaks ? "No ad breaks in this window." : `No break lost ≥ ${ud.thresholdPct}% of users.`}</div>`}
+      <div class="muted" style="font-size:12px; margin-top:8px;">"After lag" = seconds between the break ending and the first ActiveUsers snapshot used. ⚠ = later than the stale tolerance; that drop includes unrelated churn.</div>`;
+  }
+
+  function renderTracker(tr, factor) {
+    const el = document.getElementById("tabTracker");
+    if (factor.status === "QUERY_FAILED") { el.innerHTML = `<div class="error-box">Tracker query failed: ${esc(factor.detail)}</div>`; return; }
+    if (!tr.totalErrors) { el.innerHTML = `<div class="empty">No tracker errors logged. Note: silent non-firing does not produce an error and can't be seen here.</div>`; return; }
+
+    el.innerHTML = `
+      <div class="stat-row">
+        <div class="stat"><div class="v">${fmt(tr.totalErrors)}</div><div class="l">Tracker errors</div></div>
+        <div class="stat"><div class="v">${fmt(tr.affectedAdBreaks)}</div><div class="l">Ad breaks</div></div>
+        <div class="stat"><div class="v">${fmt(tr.byHost.length)}</div><div class="l">Endpoints</div></div>
+      </div>
+      <h4>By error type</h4>
+      <div class="table-wrap" style="max-height:none;"><table>
+        <thead><tr><th>Type</th><th>Owner</th><th class="num">Occurrences</th><th class="num">Breaks</th><th class="num">Assets</th><th>Top endpoints</th><th>Sample</th></tr></thead>
+        <tbody>${tr.byCategory.map((c) => `
+          <tr><td>${esc(c.label)}</td><td>${owner(c.owner)}</td><td class="num"><b>${fmt(c.occurrences)}</b></td><td class="num">${fmt(c.adBreaks)}</td><td class="num">${fmt(c.assets)}</td>
+          <td>${c.topHosts.map((h) => `<span class="pill">${esc(h.host)} · ${h.count}</span>`).join("") || "–"}</td>
+          <td class="mono" style="max-width:320px;">${esc(c.sample)}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <h4>By tracker endpoint</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Host</th><th class="num">Occurrences</th><th>Types</th><th>HTTP status</th></tr></thead>
+        <tbody>${tr.byHost.map((h) => `
+          <tr><td class="url">${esc(h.host)}</td><td class="num">${fmt(h.occurrences)}</td>
+          <td>${Object.entries(h.categories).map(([k, v]) => `<span class="pill">${esc(tr.labels[k] || k)} · ${v}</span>`).join("")}</td>
+          <td>${Object.entries(h.statuses).map(([k, v]) => `<span class="pill">${esc(k)} · ${v}</span>`).join("") || "–"}</td></tr>`).join("")}</tbody>
+      </table></div>
+      ${tr.byAsset.length ? `
+      <h4>By asset</h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Asset ID</th><th class="num">Occurrences</th><th class="num">Breaks</th><th>Types</th></tr></thead>
+        <tbody>${tr.byAsset.map((a) => `<tr><td class="mono">${esc(a.assetId)}</td><td class="num">${fmt(a.occurrences)}</td><td class="num">${fmt(a.adBreaks)}</td>
+          <td>${Object.entries(a.categories).map(([k, v]) => `<span class="pill">${esc(tr.labels[k] || k)} · ${v}</span>`).join("")}</td></tr>`).join("")}</tbody>
+      </table></div>` : ""}
+      ${sigTable(tr.unclassifiedSignatures, "Tracker errors without a recognised type")}`;
+  }
+
+  function renderCorrelation(c) {
+    const el = document.getElementById("tabCorr");
+    if (!c.correlatedBreaks) {
+      el.innerHTML = `<div class="empty">No ad break was hit by more than one factor (${fmt(c.totalBreaksSeen)} breaks seen).</div>`;
+      return;
+    }
+    const fName = { RULE_ENGINE: "Transcode", USER_DROP: "User drop", TRACKER: "Tracker" };
+    el.innerHTML = `
+      <div class="card-sub" style="margin:0 0 12px;">${fmt(c.correlatedBreaks)} ad break(s) were hit by two or more factors; ${fmt(c.allThreeFactors)} by all three.
+      ${c.breaksOutsideOpportunityWindow ? ` ${fmt(c.breaksOutsideOpportunityWindow)} break(s) with errors started before this hour and have no audience data.` : ""}</div>
+      ${c.breaks.map((b) => `
+        <div class="corr-break">
+          <div class="corr-head">
+            <span class="id">${esc(b.adBreakId)}</span>
+            <span>${b.factors.map((f) => `<span class="pill">${fName[f] || f}</span>`).join("")}
+              <span class="muted mono" style="margin-left:6px;">${esc(shortTime(b.opportunityTime))}${b.durationSeconds ? ` · ${b.durationSeconds}s` : ""}</span></span>
+          </div>
+          <div class="corr-grid">
+            <div><div class="k">Rule Engine</div>${b.ruleEngine
+              ? `${fmt(b.ruleEngine.failures)} failure(s): ${esc(Object.entries(b.ruleEngine.categories).map(([k, v]) => `${k} ${v}`).join(", "))}
+                 ${b.ruleEngine.assets.map((u) => `<div class="url muted">${esc(u)}</div>`).join("")}`
+              : `<span class="muted">none</span>`}</div>
+            <div><div class="k">Tracker</div>${b.tracker
+              ? `${fmt(b.tracker.errors)} error(s): ${esc(Object.entries(b.tracker.categories).map(([k, v]) => `${k} ${v}`).join(", "))}`
+              : `<span class="muted">none</span>`}</div>
+            <div><div class="k">Audience</div>${b.userDrop
+              ? `${fmt(b.userDrop.before)} → ${fmt(b.userDrop.after)} <span class="${b.userDrop.significant ? "drop-hi" : ""}">(${fmtPct(b.userDrop.dropPct)})</span>${b.userDrop.stale ? " ⚠" : ""}`
+              : `<span class="muted">no snapshot</span>`}</div>
+          </div>
+        </div>`).join("")}`;
+  }
+
+  function renderDiagnostics(d) {
+    const diag = d.diagnostics || [];
+    const sso = diag.filter((x) => x.isSsoExpired);
+    const profiles = [...new Set(sso.map((x) => x.profile).filter(Boolean))];
+    document.getElementById("ssoCallouts").innerHTML = profiles.map((p) => `
+      <div class="sso-callout">Your AWS SSO session has expired. Reconnect above, or run this in a terminal, then re-run:
+      <br><code>aws sso login --profile ${esc(p)}</code></div>`).join("");
+
+    const names = { ruleEngine: "core_rule_engine", userDrop: "analytics_prefetcher", tracker: "core_tracker" };
+    const fmtBytes = (b) => (b === null || b === undefined ? "n/a" : b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : `${(b / 1e6).toFixed(1)} MB`);
+    const fmtMs = (ms) => (ms === null || ms === undefined ? "n/a" : `${(ms / 1000).toFixed(1)}s`);
+
+    const cancelled = diag.filter((x) => x.isCancelled);
+    if (cancelled.length) {
+      const ids = cancelled.map((x) => x.queryExecutionId).filter(Boolean);
+      const regions = [...new Set(cancelled.map((x) => x.region))];
+      document.getElementById("ssoCallouts").innerHTML += `
+        <div class="sso-callout">
+          <b>${cancelled.length} quer${cancelled.length === 1 ? "y was" : "ies were"} cancelled outside this app.</b>
+          Athena reports CANCELLED only when something calls StopQueryExecution. This tool never does,
+          so it's a person, a script or an automated guard on the account (commonly a cost/runtime guard).
+          Look at the "ran for" and "scanned" values below for a pattern, then find who cancelled it in CloudTrail
+          (event name <b>StopQueryExecution</b>, region ${esc(regions.join(", "))}). Its <i>userIdentity</i> shows the caller:
+          ${ids.length ? `<br><code>aws cloudtrail lookup-events --region ${esc(regions[0])} --profile ${esc(cancelled[0].profile || "thunderstorm-v3")} --lookup-attributes AttributeKey=EventName,AttributeValue=StopQueryExecution --max-results 50</code>
+          <br><code>aws athena get-query-execution --region ${esc(cancelled[0].region)} --profile ${esc(cancelled[0].profile || "thunderstorm-v3")} --query-execution-id ${esc(ids[0])}</code>` : ""}
+        </div>`;
+    }
+
+    const lines = diag.map((x) => {
+      const head = `<span class="dim">[${esc(x.clusterKey)}] ${esc(x.database)}.${names[x.query] || x.query} (${esc(x.region)}, workgroup ${esc(x.workGroup || "primary")})</span>`;
+      let tail;
+      if (x.ok) {
+        tail = `<span class="ok">✓ ${fmt(x.rowCount)} row(s) in ${(x.durationMs / 1000).toFixed(1)}s</span>${x.truncated ? ` <span class="warn">— hit row limit, counts are a lower bound</span>` : ""}`;
+      } else {
+        const a = x.athena || {};
+        tail = `<span class="fail">✗ ${esc(x.error)}</span>`;
+        tail += `\n  <span class="dim">ran for</span> ${fmtMs(a.totalExecutionMs ?? x.durationMs)}` +
+                `  <span class="dim">engine</span> ${fmtMs(a.engineExecutionMs)}` +
+                `  <span class="dim">queued</span> ${fmtMs(a.queueMs)}` +
+                `  <span class="dim">scanned</span> ${fmtBytes(a.dataScannedBytes)}`;
+        if (a.errorType) tail += `  <span class="dim">error type</span> ${esc(a.errorType)}`;
+      }
+      if (x.queryExecutionId) tail += `\n  <span class="dim">query id</span> ${esc(x.queryExecutionId)}`;
+      return `${head}\n  ${tail}`;
+    });
+    document.getElementById("diagnosticsLog").innerHTML =
+      (lines.length ? `<div class="log-box">${lines.join("\n\n")}</div>` : "") +
+      diag.map((x) => `<details class="sql"><summary>SQL — ${esc(x.query)} @ ${esc(x.clusterKey)}</summary><pre>${esc(x.sql)}</pre></details>`).join("");
+  }
+
+  function switchTab(id) {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === id));
+    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === id));
+  }
+
+  async function copyReport(btn) {
+    try {
+      await navigator.clipboard.writeText(lastResult?.report || "");
+      btn.textContent = "Copied ✓";
+    } catch {
+      btn.textContent = "Copy failed";
+    }
+    setTimeout(() => (btn.textContent = "Copy report"), 1500);
+  }
+
+  function downloadJson() {
+    if (!lastResult) return;
+    const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `render-rate-rca_${lastResult.input.channelId}_${lastResult.input.date}_${String(lastResult.input.hour).padStart(2, "0")}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /* ── History ─────────────────────────────────────────────────────── */
+  async function loadHistory() {
+    const body = document.getElementById("historyBody");
+    try {
+      const res = await fetch("/rca/render-rate/history?limit=20", { headers: authHeaders() });
+      const docs = await res.json();
+      if (!Array.isArray(docs) || !docs.length) {
+        body.innerHTML = `<tr><td colspan="8" class="muted">No render-rate investigations yet</td></tr>`;
+        return;
+      }
+      body.innerHTML = docs.map((d) => `
+        <tr class="clickable" onclick="showSavedReport('${esc(d._id)}')">
+          <td>${timeAgo(d.createdAt)}</td>
+          <td class="mono">${esc(d.channelId)}</td>
+          <td class="mono">${esc(d.date)} ${String(d.hour).padStart(2, "0")}:00</td>
+          <td>${esc((STATUS_LABELS[d.status] || {}).label || d.status || "-")}</td>
+          <td><span class="badge conf ${esc(d.confidence)}">${esc(d.confidence || "-")}</span></td>
+          <td class="num">${fmt(d.metrics?.transcodeFailures)}</td>
+          <td class="num">${fmt(d.metrics?.significantDropBreaks)}</td>
+          <td class="num">${fmt(d.metrics?.trackerErrors)}</td>
+        </tr>`).join("");
+    } catch {
+      body.innerHTML = `<tr><td colspan="8" class="muted">Could not load history</td></tr>`;
+    }
+  }
+
+  async function showSavedReport(id) {
+    const box = document.getElementById("historyReport");
+    try {
+      const res = await fetch(`/rca/render-rate/history/${encodeURIComponent(id)}`, { headers: authHeaders() });
+      const doc = await res.json();
+      box.textContent = doc.report || "(no report saved)";
+      box.classList.remove("hidden");
+    } catch (err) {
+      box.textContent = err.message;
+      box.classList.remove("hidden");
+    }
+  }
+
+  loadLimits();
+  loadClusters();
+  checkAwsStatus();
+  loadHistory();
+</script>
+</body>
+</html>

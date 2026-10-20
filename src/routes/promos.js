@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/authMiddleware.js";
 import { getPromos, putPromos } from "../stormforge.js";
 import Channel from "../models/Channel.js";
 import Log from "../models/Log.js";
+import { resolvePlatformId, canAccessChannel } from "../utils/platforms.js";
 
 const router = express.Router();
 router.use(requireAuth);
@@ -18,7 +19,19 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const platformList = JSON.parse(platforms);
+    let platformList;
+    try {
+      platformList = JSON.parse(platforms);
+    } catch {
+      return res.status(400).json({ error: "platforms must be a JSON array" });
+    }
+    if (!Array.isArray(platformList)) {
+      return res.status(400).json({ error: "platforms must be a JSON array" });
+    }
+
+    if (!canAccessChannel(req.user, channelName)) {
+      return res.status(403).json({ error: "No access to this channel" });
+    }
 
     const channel = await Channel.findOne({ channel: channelName });
 
@@ -30,19 +43,23 @@ router.get("/", async (req, res) => {
 
     const result = {};
 
-    for (const platform of platformList) {
-      const channelId = channel.platforms[platform];
+    // Fetch all platforms in parallel; one failing platform doesn't hide the rest
+    await Promise.all(platformList.map(async (platform) => {
+      const channelId = resolvePlatformId(channel, platform);
 
       if (!channelId) {
         result[platform] = [];
-        continue;
+        return;
       }
 
-      const data = await getPromos(channelId);
-
-      result[platform] =
-        data?.ssai_configuration?.filler_config?.url || [];
-    }
+      try {
+        const data = await getPromos(channelId);
+        result[platform] = data?.ssai_configuration?.filler_config?.url || [];
+      } catch (err) {
+        console.error(`❌ Promo fetch failed ${channelName} | ${platform}:`, err.message);
+        result[platform] = [];
+      }
+    }));
 
     res.json(result);
 
@@ -66,12 +83,17 @@ router.delete("/", async (req, res) => {
 
     if (
       !channelName ||
-      !platforms ||
+      !Array.isArray(platforms) ||
+      !platforms.length ||
       deleteUrls.length === 0
     ) {
       return res.status(400).json({
-        error: "channelName, platforms & url(s) required"
+        error: "channelName, platforms[] & url(s) required"
       });
+    }
+
+    if (!canAccessChannel(req.user, channelName)) {
+      return res.status(403).json({ error: "No access to this channel" });
     }
 
     const channel = await Channel.findOne({
@@ -86,7 +108,7 @@ router.delete("/", async (req, res) => {
 
     for (const platform of platforms) {
 
-      const channelId = channel.platforms[platform];
+      const channelId = resolvePlatformId(channel, platform);
 
       if (!channelId) {
         console.log(`No channelId for ${platform}`);

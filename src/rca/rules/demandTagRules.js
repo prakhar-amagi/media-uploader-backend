@@ -59,11 +59,18 @@ export function isSignificantRise(pct) {
  * fullAnalysis.js — { pastWindow, currentWindow, changePercent }.
  */
 export function analyzeDemandTagPerformance(summary) {
-  if (!summary || !summary.changePercent) {
+  // An empty changePercent ({}) means there was nothing to compare
+  // (no rows, < 2 days, or no earlier days for the requested hours) —
+  // that's missing data, not "no change".
+  if (!summary || !summary.changePercent || !Object.keys(summary.changePercent).length) {
     return {
       status: "NO_DATA",
       confidence: "NONE",
-      reason: "No tag performance data available for this demand tag.",
+      reason:
+        summary?.note ||
+        (summary?.interval === "hour"
+          ? "No hourly tag performance data to compare for this demand tag (the API returned no hourly rows, or no earlier days for these hours)."
+          : "No tag performance data available for this demand tag."),
       evidence: {},
     };
   }

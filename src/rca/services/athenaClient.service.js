@@ -13,7 +13,10 @@ export async function runAthenaQuery({
   region,
   database,
   outputLocation,
-  profile
+  profile,
+  maxRows = 50000,
+  workGroup = process.env.ATHENA_WORKGROUP || undefined,
+  onStarted
 }) {
 
   console.log("\nConnecting to Athena...");
@@ -41,6 +44,8 @@ export async function runAthenaQuery({
 
       QueryString: query,
 
+      ...(workGroup ? { WorkGroup: workGroup } : {}),
+
       QueryExecutionContext: {
         Database: database
       },
@@ -66,6 +71,10 @@ export async function runAthenaQuery({
   console.log(
     `Query ID: ${queryExecutionId}`
   );
+
+  if (typeof onStarted === "function") {
+    onStarted(queryExecutionId);
+  }
 
 
   // --------------------------------------------------
@@ -108,9 +117,29 @@ export async function runAthenaQuery({
         "Unknown Athena error";
 
 
-      throw new Error(
+      // Attach execution details so callers can show
+      // WHY / after how long / how much data — not just a string.
+      const error = new Error(
         `Athena query ${state}: ${reason}`
       );
+
+      error.athena = {
+        queryExecutionId,
+        state,
+        reason,
+        workGroup: execution?.WorkGroup || workGroup || "primary",
+        errorCategory: execution?.Status?.AthenaError?.ErrorCategory ?? null,
+        errorType: execution?.Status?.AthenaError?.ErrorType ?? null,
+        errorMessage: execution?.Status?.AthenaError?.ErrorMessage ?? null,
+        submittedAt: execution?.Status?.SubmissionDateTime?.toISOString?.() ?? null,
+        completedAt: execution?.Status?.CompletionDateTime?.toISOString?.() ?? null,
+        dataScannedBytes: execution?.Statistics?.DataScannedInBytes ?? null,
+        engineExecutionMs: execution?.Statistics?.EngineExecutionTimeInMillis ?? null,
+        queueMs: execution?.Statistics?.QueryQueueTimeInMillis ?? null,
+        totalExecutionMs: execution?.Statistics?.TotalExecutionTimeInMillis ?? null,
+      };
+
+      throw error;
     }
 
 
@@ -121,38 +150,45 @@ export async function runAthenaQuery({
 
 
   // --------------------------------------------------
-  // Retrieve results
+  // Retrieve results (paginated)
+  //
+  // GetQueryResults returns at most 1000 rows per call, so
+  // follow NextToken until exhausted. Only the FIRST page
+  // contains the header row. maxRows is a safety cap.
   // --------------------------------------------------
 
   console.log(
     "\nRetrieving Athena results..."
   );
 
+  const allRows = [];
+  let nextToken;
 
-  const resultResponse = await client.send(
-    new GetQueryResultsCommand({
-      QueryExecutionId: queryExecutionId
-    })
-  );
+  do {
+    const page = await client.send(
+      new GetQueryResultsCommand({
+        QueryExecutionId: queryExecutionId,
+        NextToken: nextToken,
+        MaxResults: 1000
+      })
+    );
+
+    allRows.push(...(page?.ResultSet?.Rows || []));
+    nextToken = page?.NextToken;
+  } while (nextToken && allRows.length < maxRows + 1);
 
 
-  return convertAthenaResults(
-    resultResponse
-  );
+  return convertAthenaRows(allRows);
 }
 
 
 // --------------------------------------------------
-// Convert Athena response into normal JSON
+// Convert Athena rows (first row = header) into JSON
 // --------------------------------------------------
 
-function convertAthenaResults(result) {
+function convertAthenaRows(rows) {
 
-  const rows =
-    result?.ResultSet?.Rows || [];
-
-
-  if (rows.length === 0) {
+  if (!rows.length) {
     return [];
   }
 
@@ -168,8 +204,8 @@ function convertAthenaResults(result) {
     .map(row => {
 
       const values =
-        row.Data.map(
-          column => column.VarCharValue ?? null
+        (row.Data || []).map(
+          column => column?.VarCharValue ?? null
         );
 
 

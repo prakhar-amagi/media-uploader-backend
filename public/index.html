@@ -199,6 +199,30 @@
       font-weight: 600;
     }
 
+    /* Per-channel platform selection */
+    .pf-panel { margin-top: 18px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .pf-panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; background: #f9fafb; border-bottom: 1px solid var(--border); }
+    .pf-panel-head .title { font-weight: 700; }
+    .pf-quick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+    .pf-quick button { background: #fff; color: var(--text); border: 1.5px solid var(--border); padding: 4px 10px; font-weight: 600; font-size: 12.5px; }
+    .pf-quick button.on { border-color: var(--primary); color: var(--primary); background: #eef2ff; }
+    .pf-row { display: grid; grid-template-columns: 240px 1fr auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border); }
+    .pf-row:first-of-type { border-top: none; }
+    .pf-row .ch { font-weight: 600; word-break: break-word; }
+    .pf-row .ch small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+    .pf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pf-chip { display: inline-flex; align-items: center; gap: 6px; border: 1.5px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 500; cursor: pointer; user-select: none; background: #fff; }
+    .pf-chip input { margin: 0; }
+    .pf-chip.on { border-color: var(--primary); background: #eef2ff; color: #3730a3; }
+    .pf-row .row-actions button { background: transparent; color: var(--primary); padding: 4px 6px; font-size: 12.5px; }
+    .pf-warn { color: #92400e; font-size: 13px; }
+    .pf-summary { padding: 10px 14px; background: #f9fafb; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+    .pf-summary b { color: var(--text); }
+    .result-list { margin-top: 10px; font-size: 13px; }
+    .result-list .ok { color: #047857; }
+    .result-list .fail { color: #b91c1c; }
+    @media (max-width: 800px) { .pf-row { grid-template-columns: 1fr; } }
+
     /* Style for multi-channel headers */
     .channel-section-header {
       border-bottom: 2px solid var(--border);
@@ -245,6 +269,10 @@
     🔎 Impression RCA
   </button>
 
+  <button onclick="window.location.href='/render-rate-rca.html'" style="width:100%; white-space: nowrap;">
+    📉 Render Rate RCA
+  </button>
+
   <button onclick="logout()" style="width:100%; background:#ef4444;">
     🚪 Logout
   </button>
@@ -273,6 +301,7 @@
     <!-- Container for selected channels -->
     <div id="selectedChannelsList"></div>
 
+    <!-- Per-channel platform selection (filled from each channel's admin config) -->
     <div id="platforms"></div>
 
     <br>
@@ -284,6 +313,7 @@
     <br><br>
     <progress id="progressBar" max="100" value="0"></progress>
     <div id="status" class="status"></div>
+    <div id="uploadResults" class="result-list"></div>
   </div>
 
   <div class="card">
@@ -384,151 +414,244 @@ function updateChannelButtonText() {
     .join('');
 }
 
+function escapeHtml(v) {
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /* ---------- Load channels ---------- */
 async function loadChannels() {
   const res = await authFetch("/channels");
+  if (res.status === 401) { logout(); return; }
   const channels = await res.json();
 
   channelDropdown.innerHTML = "";
 
   channels.forEach(channelName => {
     const label = document.createElement("label");
-    label.innerHTML = `
-      <input
-        type="checkbox"
-        value="${channelName}"
-        onchange="
-          updateChannelButtonText();
-          loadPlatforms();
-        "
-      >
-      ${channelName}
-    `;
+    label.innerHTML = `<input type="checkbox" value="${escapeHtml(channelName)}"> ${escapeHtml(channelName)}`;
+    label.querySelector("input").addEventListener("change", () => {
+      updateChannelButtonText();
+      loadPlatforms();
+    });
     channelDropdown.appendChild(label);
   });
 
   updateChannelButtonText();
 }
 
-/* ---------- Load platforms ---------- */
-async function loadPlatforms() {
-  platformsBox.innerHTML = "Loading platforms...";
+/* ---------- Platforms per channel ----------
+   Platforms come from each channel's configuration in the admin panel.
+   Each selected channel has its own platform selection.
+-------------------------------------------- */
+const platformsByChannel = new Map();   // channel -> [platform names] (cache)
+const platformSelection = new Map();    // channel -> Set(selected platform names)
+let platformLoadSeq = 0;
 
+async function loadPlatforms() {
   const selectedChannels = getSelectedChannels();
+
+  // forget selections for channels that were unticked
+  for (const ch of [...platformSelection.keys()]) {
+    if (!selectedChannels.includes(ch)) platformSelection.delete(ch);
+  }
 
   if (!selectedChannels.length) {
     platformsBox.innerHTML = "";
     return;
   }
 
-  /*
-    Use first selected channel
-    to determine available platforms
-  */
-  const channelName = selectedChannels[0];
+  const missing = selectedChannels.filter(ch => !platformsByChannel.has(ch));
+  if (missing.length) {
+    const seq = ++platformLoadSeq;
+    platformsBox.innerHTML = `<div class="status">Loading platforms…</div>`;
+    try {
+      const res = await authFetch("/channels/platforms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channels: missing })
+      });
+      if (res.status === 401) { logout(); return; }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load platforms");
+      if (seq !== platformLoadSeq) return;            // a newer load is in flight
 
-  try {
-    const res = await authFetch(`/channels/${encodeURIComponent(channelName)}`);
-
-    if (!res.ok) {
-      platformsBox.innerHTML = "❌ Failed to load platforms";
+      for (const [ch, list] of Object.entries(data.platforms || {})) platformsByChannel.set(ch, list);
+      for (const ch of [...(data.notFound || []), ...(data.forbidden || [])]) platformsByChannel.set(ch, []);
+    } catch (err) {
+      console.error(err);
+      platformsBox.innerHTML = `<div class="status">❌ ${escapeHtml(err.message)}</div>`;
       return;
     }
-
-    const platforms = await res.json();
-
-    if (!platforms || platforms.length === 0) {
-      platformsBox.innerHTML = "⚠️ No platforms available";
-      return;
-    }
-
-    platformsBox.innerHTML = "";
-
-    platforms.forEach(p => {
-      const label = document.createElement("label");
-      label.innerHTML = `
-        <input type="checkbox" value="${p}" checked>
-        ${p}
-      `;
-      platformsBox.appendChild(label);
-    });
-
-  } catch (err) {
-    console.error(err);
-    platformsBox.innerHTML = "❌ Platform load error";
   }
+
+  // newly selected channel: all its platforms ticked by default
+  for (const ch of selectedChannels) {
+    if (!platformSelection.has(ch)) platformSelection.set(ch, new Set(platformsByChannel.get(ch) || []));
+  }
+
+  renderPlatformPanel();
 }
 
-function getSelectedPlatforms() {
-  return [...document.querySelectorAll("#platforms input:checked")]
-    .map(i => i.value);
+function renderPlatformPanel() {
+  const channels = getSelectedChannels();
+  if (!channels.length) { platformsBox.innerHTML = ""; return; }
+
+  // every platform name available across the selected channels
+  const allPlatforms = [...new Set(channels.flatMap(ch => platformsByChannel.get(ch) || []))];
+
+  const quick = allPlatforms.map(p => {
+    const having = channels.filter(ch => (platformsByChannel.get(ch) || []).includes(p));
+    const allOn = having.every(ch => platformSelection.get(ch)?.has(p));
+    return `<button type="button" class="${allOn ? "on" : ""}" data-platform="${escapeHtml(p)}"
+              title="${allOn ? "Untick" : "Tick"} ${escapeHtml(p)} on ${having.length} channel(s)">
+              ${allOn ? "✓ " : ""}${escapeHtml(p)} <span style="color:var(--muted)">${having.length}</span>
+            </button>`;
+  }).join("");
+
+  const rows = channels.map(ch => {
+    const available = platformsByChannel.get(ch) || [];
+    const sel = platformSelection.get(ch) || new Set();
+    const body = available.length
+      ? `<div class="pf-chips">${available.map(p => `
+          <label class="pf-chip ${sel.has(p) ? "on" : ""}">
+            <input type="checkbox" data-channel="${escapeHtml(ch)}" data-platform="${escapeHtml(p)}" ${sel.has(p) ? "checked" : ""}>
+            ${escapeHtml(p)}
+          </label>`).join("")}</div>`
+      : `<div class="pf-warn">⚠️ No platforms configured for this channel. ${
+          localStorage.getItem("role") === "admin" ? `<a href="/admin.html">Add them in the Admin Panel</a>.` : "Ask an admin to add them."}</div>`;
+
+    return `
+      <div class="pf-row">
+        <div class="ch">${escapeHtml(ch)}<small>${available.length} platform${available.length === 1 ? "" : "s"} available</small></div>
+        ${body}
+        <div class="row-actions">${available.length ? `
+          <button type="button" data-all="${escapeHtml(ch)}">All</button>
+          <button type="button" data-none="${escapeHtml(ch)}">None</button>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  const targets = getTargets();
+  const totalTargets = targets.reduce((n, t) => n + t.platforms.length, 0);
+
+  platformsBox.innerHTML = `
+    <div class="pf-panel">
+      <div class="pf-panel-head">
+        <span class="title">Platforms per channel</span>
+        ${allPlatforms.length > 0 && channels.length > 1 ? `<div class="pf-quick">Apply to all channels: ${quick}</div>` : ""}
+      </div>
+      ${rows}
+      <div class="pf-summary">
+        ${totalTargets
+          ? `Each file will be added to <b>${totalTargets}</b> deliver${totalTargets === 1 ? "y" : "ies"} across <b>${targets.length}</b> channel${targets.length === 1 ? "" : "s"}.`
+          : "No platforms selected yet."}
+      </div>
+    </div>`;
+
+  // events
+  platformsBox.querySelectorAll(".pf-chip input").forEach(cb => cb.addEventListener("change", () => {
+    const set = platformSelection.get(cb.dataset.channel);
+    cb.checked ? set.add(cb.dataset.platform) : set.delete(cb.dataset.platform);
+    renderPlatformPanel();
+  }));
+  platformsBox.querySelectorAll("[data-all]").forEach(b => b.addEventListener("click", () => {
+    platformSelection.set(b.dataset.all, new Set(platformsByChannel.get(b.dataset.all) || []));
+    renderPlatformPanel();
+  }));
+  platformsBox.querySelectorAll("[data-none]").forEach(b => b.addEventListener("click", () => {
+    platformSelection.set(b.dataset.none, new Set());
+    renderPlatformPanel();
+  }));
+  platformsBox.querySelectorAll(".pf-quick button").forEach(b => b.addEventListener("click", () => {
+    const p = b.dataset.platform;
+    const having = getSelectedChannels().filter(ch => (platformsByChannel.get(ch) || []).includes(p));
+    const allOn = having.every(ch => platformSelection.get(ch)?.has(p));
+    having.forEach(ch => allOn ? platformSelection.get(ch).delete(p) : platformSelection.get(ch).add(p));
+    renderPlatformPanel();
+  }));
+}
+
+/** [{ channel, platforms: [...] }] for channels with at least one platform ticked */
+function getTargets() {
+  return getSelectedChannels()
+    .map(ch => ({ channel: ch, platforms: [...(platformSelection.get(ch) || [])] }))
+    .filter(t => t.platforms.length);
+}
+
+function getSelectedPlatformsFor(channel) {
+  return [...(platformSelection.get(channel) || [])];
 }
 
 /* ---------- MULTI Upload ---------- */
+function sendUpload(file, targets) {
+  return new Promise((resolve) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("targets", JSON.stringify(targets));
+
+    const xhr = new XMLHttpRequest();
+    currentXHR = xhr;
+    xhr.open("POST", "/upload");
+    xhr.setRequestHeader("Authorization", "Bearer " + localStorage.getItem("token"));
+
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) progressBar.value = (e.loaded / e.total) * 100;
+    };
+
+    xhr.onload = () => {
+      progressBar.value = 0;
+      if (xhr.status === 401) {
+        alert("Session expired. Login again.");
+        logout();
+        return resolve({ aborted: true });
+      }
+      let body = {};
+      try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON error */ }
+      resolve({ status: xhr.status, ...body });
+    };
+    xhr.onerror = () => { progressBar.value = 0; resolve({ status: 0, error: "Network error" }); };
+    xhr.onabort = () => { progressBar.value = 0; resolve({ aborted: true }); };
+
+    xhr.send(fd);
+  });
+}
+
 async function uploadPromo() {
   const files = fileInput.files;
-  const platforms = getSelectedPlatforms();
+  const targets = getTargets();
 
-  if (
-    !files.length ||
-    !platforms.length ||
-    !getSelectedChannels().length
-  ) {
-    alert("Select channel(s), file & platform(s)");
-    return;
-  }
+  if (!getSelectedChannels().length) return alert("Select at least one channel");
+  if (!targets.length) return alert("Select at least one platform for at least one channel");
+  if (!files.length) return alert("Choose a file to upload");
+
+  const skipped = getSelectedChannels().filter(ch => !targets.some(t => t.channel === ch));
+  if (skipped.length && !confirm(`No platforms selected for: ${skipped.join(", ")}.\n\nThese channels will be skipped. Continue?`)) return;
+
+  const lines = [];
+  const resultBox = () => document.getElementById("uploadResults");
+  resultBox().innerHTML = "";
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    statusEl.textContent = `Uploading ${file.name} to ${getSelectedChannels().length} channel(s)`;
+    statusEl.textContent = `Uploading ${file.name} (${i + 1}/${files.length})…`;
 
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("channelNames", JSON.stringify(getSelectedChannels()));
-    fd.append("platforms", JSON.stringify(platforms));
+    const r = await sendUpload(file, targets);
+    if (r.aborted) { statusEl.textContent = "❌ Upload cancelled"; currentXHR = null; return; }
 
-    await new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      currentXHR = xhr;
-
-      xhr.open("POST", "/upload");
-
-      /* 🔐 ADD TOKEN */
-      xhr.setRequestHeader(
-        "Authorization",
-        "Bearer " + localStorage.getItem("token")
-      );
-
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) {
-          progressBar.value = (e.loaded / e.total) * 100;
-        }
-      };
-
-      xhr.onload = () => {
-        progressBar.value = 0;
-
-        if (xhr.status === 401) {
-          alert("Session expired. Login again.");
-          logout();
-          return;
-        }
-
-        resolve();
-      };
-
-      xhr.onerror = () => {
-        statusEl.textContent = "❌ Upload failed";
-        progressBar.value = 0;
-        reject();
-      };
-
-      xhr.send(fd);
-    });
+    if (r.status >= 200 && r.status < 300 || (r.deliveries && r.deliveries.length)) {
+      lines.push(`<div class="ok">✅ ${escapeHtml(file.name)} → ${r.deliveries.length} deliver${r.deliveries.length === 1 ? "y" : "ies"} updated</div>`);
+    } else {
+      lines.push(`<div class="fail">❌ ${escapeHtml(file.name)}: ${escapeHtml(r.error || `HTTP ${r.status}`)}</div>`);
+    }
+    for (const f of r.failures || []) {
+      lines.push(`<div class="fail" style="margin-left:18px;">• ${escapeHtml(f.channel)} / ${escapeHtml(f.platform)}: ${escapeHtml(f.reason)}</div>`);
+    }
+    resultBox().innerHTML = lines.join("");
   }
 
   currentXHR = null;
-  statusEl.textContent = "✅ All uploads complete";
+  const anyFail = lines.some(l => l.includes('class="fail"'));
+  statusEl.textContent = anyFail ? "⚠️ Uploads finished with errors — see details below" : "✅ All uploads complete";
   fileInput.value = "";
   loadPromos();
 }
@@ -549,25 +672,19 @@ async function loadPromos() {
     return;
   }
 
-  const platforms = getSelectedPlatforms();
-  if (!platforms.length) {
-    promoList.innerHTML = "<p>Select platform</p>";
+  const targets = getTargets();
+  if (!targets.length) {
+    promoList.innerHTML = "<p>Select at least one platform above</p>";
     return;
   }
 
-  // Iterate over every selected channel to fetch and render its promos
-  for (const channel of channels) {
-    
-    // Create a container and header for this specific channel
+  for (const { channel, platforms } of targets) {
     const channelContainer = document.createElement("div");
     channelContainer.style.marginBottom = "40px";
-    channelContainer.innerHTML = `<h2 class="channel-section-header">📡 Channel: ${channel}</h2>`;
-    
-    const q = new URLSearchParams({
-      channelName: channel,
-      platforms: JSON.stringify(platforms)
-    });
+    channelContainer.innerHTML = `<h2 class="channel-section-header">📡 Channel: ${escapeHtml(channel)}</h2>`;
+    promoList.appendChild(channelContainer);
 
+    const q = new URLSearchParams({ channelName: channel, platforms: JSON.stringify(platforms) });
     const res = await authFetch(`/promos?${q}`);
 
     if (res.status === 401) {
@@ -577,157 +694,91 @@ async function loadPromos() {
     }
 
     if (!res.ok) {
-      channelContainer.innerHTML += `<p style="color:red;">❌ Failed to load promos for ${channel}</p>`;
-      promoList.appendChild(channelContainer);
-      continue; // Skip to the next channel on error
+      channelContainer.innerHTML += `<p style="color:red;">❌ Failed to load promos for ${escapeHtml(channel)}</p>`;
+      continue;
     }
 
     const data = await res.json();
     const grid = document.createElement("div");
     grid.className = "platform-grid";
 
-    Object.entries(data).forEach(([platform, urls]) => {
+    platforms.forEach(platform => {
+      const urls = data[platform] || [];
       const column = document.createElement("div");
       column.className = "platform-column";
+      column.dataset.channel = channel;
+      column.dataset.platform = platform;
 
       column.innerHTML = `
-      <h3>📺 ${platform}</h3>
-
-      <div style="margin-bottom:15px;">
-        <label>
-          <input
-            type="checkbox"
-            onclick="toggleSelectAll(this,'${channel}','${platform}')">
-          Select All
-        </label>
-
-        <button
-          style="margin-left:10px;background:#dc2626;"
-          onclick="deleteSelectedPromos('${channel}', '${platform}')">
-          🗑 Delete Selected
-        </button>
-      </div>
-      `;
-
-      if (!urls.length) {
-        column.innerHTML += "<p>No promos</p>";
-      } else {
-        /* ---------- URL LIST ---------- */
-        column.innerHTML += `
-          <div style="
-            background:white;
-            border:1px solid #e5e7eb;
-            border-radius:10px;
-            padding:10px;
-            margin-bottom:14px;
-          ">
+        <h3>📺 ${escapeHtml(platform)}</h3>
+        <div style="margin-bottom:15px;">
+          <label><input type="checkbox" class="selectAll"> Select All</label>
+          <button class="deleteSelected" style="margin-left:10px;background:#dc2626;">🗑 Delete Selected</button>
+        </div>
+        ${!urls.length ? "<p>No promos</p>" : `
+          <div style="background:white;border:1px solid #e5e7eb;border-radius:10px;padding:10px;margin-bottom:14px;">
             <strong>Current Promo URLs</strong>
-            <ul style="
-              margin-top:8px;
-              padding-left:18px;
-              font-size:12px;
-              word-break:break-all;
-            ">
-              ${urls.map(url => `
-                <li>
-                  <a href="${url}" target="_blank">${url}</a>
-                </li>
-              `).join("")}
+            <ul style="margin-top:8px;padding-left:18px;font-size:12px;word-break:break-all;">
+              ${urls.map(url => `<li><a href="${escapeHtml(url)}" target="_blank">${escapeHtml(url)}</a></li>`).join("")}
             </ul>
           </div>
-        `;
-
-        /* ---------- Existing Video Cards ---------- */
-        urls.forEach(url => {
-          const filename = url.split("/").pop();
-
-          column.innerHTML += `
+          ${urls.map(url => `
             <div class="promo-card">
               <label style="display:block;margin-bottom:8px;">
-              <input class="promoCheckbox" type="checkbox" data-channel="${channel}" data-platform="${platform}" value="${url}">Select</label>
-              <strong>${filename}</strong>
+                <input class="promoCheckbox" type="checkbox" value="${escapeHtml(url)}"> Select
+              </label>
+              <strong>${escapeHtml(url.split("/").pop())}</strong>
+              <video src="${escapeHtml(url)}" controls muted preload="metadata"></video>
+              <button class="deleteOne" data-url="${escapeHtml(url)}">🗑 Delete</button>
+            </div>`).join("")}`}
+      `;
 
-              <video src="${url}" controls muted></video>
-
-              <button onclick="deletePromo('${channel}', '${url}')">
-                🗑 Delete
-              </button>
-            </div>
-          `;
-        });
-      }
+      column.querySelector(".selectAll").addEventListener("change", e => {
+        column.querySelectorAll(".promoCheckbox").forEach(cb => cb.checked = e.target.checked);
+      });
+      column.querySelector(".deleteSelected").addEventListener("click", () => deleteSelectedPromos(column));
+      column.querySelectorAll(".deleteOne").forEach(b =>
+        b.addEventListener("click", () => deletePromo(channel, b.dataset.url)));
 
       grid.appendChild(column);
     });
 
     channelContainer.appendChild(grid);
-    promoList.appendChild(channelContainer);
   }
 }
 
 /* ---------- Delete promo ---------- */
-function toggleSelectAll(master, channel, platform) {
-    // Select checkboxes specifically scoped to this channel AND platform
-    document
-        .querySelectorAll(
-            `input.promoCheckbox[data-channel="${channel}"][data-platform="${platform}"]`
-        )
-        .forEach(cb => cb.checked = master.checked);
+async function deleteSelectedPromos(column) {
+  const { channel, platform } = column.dataset;
+  const urls = [...column.querySelectorAll(".promoCheckbox:checked")].map(cb => cb.value);
+
+  if (!urls.length) return alert("Select at least one promo in this section");
+  if (!confirm(`Delete ${urls.length} selected promo(s) for ${channel} on ${platform}?`)) return;
+
+  const res = await authFetch("/promos", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channelName: channel, platforms: [platform], urls })
+  });
+
+  if (res.ok) loadPromos();
+  else alert("Failed to delete promos");
 }
 
-async function deleteSelectedPromos(channel, platform) {
-    // Only grab checked URLs for this specific channel and platform
-    const urls = [
-        ...document.querySelectorAll(
-            `input.promoCheckbox[data-channel="${channel}"][data-platform="${platform}"]:checked`
-        )
-    ].map(cb => cb.value);
-
-    if (!urls.length) {
-        alert("Select at least one promo in this section");
-        return;
-    }
-
-    if (!confirm(`Delete ${urls.length} selected promo(s) for ${channel} on ${platform}?`))
-        return;
-
-    const res = await authFetch("/promos", {
-        method: "DELETE",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            channelName: channel,
-            platforms: [platform],
-            urls
-        })
-    });
-
-    if (res.ok) {
-        loadPromos();
-    } else {
-        alert("Failed to delete promos");
-    }
-}
-
+// Single delete removes the file from every platform currently selected for this channel
 async function deletePromo(channel, url) {
   const filename = url.split("/").pop();
-  const platformList = getSelectedPlatforms().join(", ");
+  const platforms = getSelectedPlatformsFor(channel);
 
   const confirmed = confirm(
-    `Delete this promo?\n\nChannel: ${channel}\nFile: ${filename}\nPlatforms: ${platformList}`
+    `Delete this promo?\n\nChannel: ${channel}\nFile: ${filename}\nPlatforms: ${platforms.join(", ")}`
   );
-
   if (!confirmed) return;
 
   const res = await authFetch("/promos", {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      channelName: channel,
-      platforms: getSelectedPlatforms(),
-      url
-    })
+    body: JSON.stringify({ channelName: channel, platforms, url })
   });
 
   if (res.status === 401) {
@@ -735,6 +786,7 @@ async function deletePromo(channel, url) {
     logout();
     return;
   }
+  if (!res.ok) alert("Failed to delete promo");
 
   loadPromos();
 }

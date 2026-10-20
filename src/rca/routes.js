@@ -28,27 +28,45 @@ import {
   analyzeFullRca,
   summarizeAthenaTrend,
   summarizeAcuTrend,
-  normalizeSpringservePerformance,
-  summarizeSpringservePerformance,
+  analyzeSpringserveSeries,
+  SPRINGSERVE_INTERVALS,
 } from "./rules/fullAnalysis.js";
 
 import { analyzeDemandTagPerformance } from "./rules/demandTagRules.js";
 
 /**
  * SpringServe's /dashboards/tag_performance ignores date_range and
- * always returns ~30 days of data regardless of what's requested
- * (confirmed by testing the real API directly with different
- * date_range values — it made no difference). Rather than trust
- * the API's filtering, we always fetch what it gives us and trim
- * to the actually-requested window ourselves.
+ * returns more data than requested (confirmed by testing the real API
+ * with different date_range values). We still send a sensible
+ * date_range and trim to the requested window by time ourselves
+ * (see trimSpringserveWindow in fullAnalysis.js).
+ *
+ * interval=day  -> "Last 30 Days", analysed over `days`
+ * interval=hour -> "Last 7 Days",  analysed over `hours`, each hour
+ *                  compared with the same hour on previous days
  */
-function trimToLastNDays(dailyRows, days) {
-  const n = Number(days);
-  if (!n || n <= 0 || n >= dailyRows.length) return dailyRows;
-  return dailyRows.slice(-n);
+const SPRINGSERVE_DATE_RANGE = { day: "Last 30 Days", hour: "Last 7 Days" };
+const MAX_HOURS = 72;
+
+function parseSpringserveWindow(query, { defaultDays = 30 } = {}) {
+  const interval = String(query.interval || "day").toLowerCase();
+  if (!SPRINGSERVE_INTERVALS.includes(interval)) {
+    return { error: `interval must be one of: ${SPRINGSERVE_INTERVALS.join(", ")}` };
+  }
+
+  const days = Number(query.days ?? defaultDays);
+  if (!Number.isInteger(days) || days < 2 || days > 30) return { error: "days must be an integer 2-30" };
+
+  const hours = Number(query.hours ?? 24);
+  if (interval === "hour" && (!Number.isInteger(hours) || hours < 1 || hours > MAX_HOURS)) {
+    return { error: `hours must be an integer 1-${MAX_HOURS}` };
+  }
+
+  return { interval, days, hours, dateRange: SPRINGSERVE_DATE_RANGE[interval] };
 }
 
 import RcaInvestigation from "./models/RcaInvestigation.js";
+import renderRateRoutes from "./renderRate.routes.js";
 
 import {
   startDeviceAuthorization,
@@ -58,6 +76,9 @@ import {
 
 const router = express.Router();
 router.use(requireAuth);
+
+/* Render-rate RCA (rule engine / user drop / tracker) — see renderRate.routes.js */
+router.use("/render-rate", renderRateRoutes);
 
 /* =========================================================
    Extract the SpringServe supply router ID from a StormForge
@@ -132,25 +153,33 @@ router.get("/topology", async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
-   GET /rca/demand-tag/:demandTagId?days=15&interval=day
-   Day-wise SpringServe tag performance for a single demand tag.
-
-   Note: SpringServe's date_range param is unreliable (confirmed by
-   testing the real API directly — it made no difference), so this
-   always fetches the full ~30-day window and trims to `days` here.
+   GET /rca/demand-tag/:demandTagId?interval=day&days=15
+   GET /rca/demand-tag/:demandTagId?interval=hour&hours=24
+   SpringServe tag performance for a single demand tag, daily or hourly.
 ═══════════════════════════════════════════════════════════════════════ */
 router.get("/demand-tag/:demandTagId", async (req, res) => {
   try {
     const { demandTagId } = req.params;
-    const { days = 30, interval = "day" } = req.query;
+    const win = parseSpringserveWindow(req.query);
+    if (win.error) return res.status(400).json({ error: win.error });
 
-    const raw = await getDemandTagPerformance(demandTagId, { dateRange: "Last 30 Days", interval, tagType: "demand" });
-    const fullDaily = normalizeSpringservePerformance(raw, interval);
-    const daily = trimToLastNDays(fullDaily, days);
-    const summary = summarizeSpringservePerformance(daily);
-    const rca = analyzeDemandTagPerformance(summary);
+    const raw = await getDemandTagPerformance(demandTagId, {
+      dateRange: win.dateRange, interval: win.interval, tagType: "demand",
+    });
+    const series = analyzeSpringserveSeries(raw, win);
+    const rca = analyzeDemandTagPerformance(series.summary);
 
-    return res.json({ demandTagId: Number(demandTagId), days: Number(days), interval, daily, summary, rca });
+    return res.json({
+      demandTagId: Number(demandTagId),
+      interval: series.interval,
+      window: series.window,
+      days: win.interval === "day" ? win.days : undefined,
+      hours: win.interval === "hour" ? win.hours : undefined,
+      daily: series.rows,          // kept for backward compatibility
+      rows: series.rows,
+      summary: series.summary,
+      rca,
+    });
   } catch (error) {
     console.error("Demand tag analysis error:", error);
     return res.status(500).json({ error: "Failed to retrieve demand tag data", detail: error.message });
@@ -164,10 +193,16 @@ router.get("/demand-tag/:demandTagId", async (req, res) => {
 ═══════════════════════════════════════════════════════════════════════ */
 router.get("/investigate", async (req, res) => {
   try {
-    const { channelId, demandTagId, days = 15 } = req.query;
+    const { channelId, demandTagId } = req.query;
 
     if (!channelId) return res.status(400).json({ error: "channelId is required" });
     if (!demandTagId) return res.status(400).json({ error: "demandTagId is required" });
+
+    // `days` drives ACU + Athena (always daily). `interval`/`hours` only
+    // change the SpringServe demand-tag analysis.
+    const win = parseSpringserveWindow(req.query, { defaultDays: 15 });
+    if (win.error) return res.status(400).json({ error: win.error });
+    const days = win.days;
 
     /* 1. StormForge -> cluster splits (setup values, e.g. "ts-us-e2-n1") */
     const summary = await getChannelSummary(channelId);
@@ -194,16 +229,13 @@ router.get("/investigate", async (req, res) => {
     }
     const athenaSummary = summarizeAthenaTrend(athenaTrend.merged);
 
-    /* 5. SpringServe demand-tag day-wise performance.
-       The API ignores date_range and always returns ~30 days
-       regardless of what we ask for, so we always request the
-       full window and trim to `days` ourselves below. */
+    /* 5. SpringServe demand-tag performance — daily or hourly */
     const springserveRaw = await getDemandTagPerformance(demandTagId, {
-      dateRange: "Last 30 Days", interval: "day", tagType: "demand",
+      dateRange: win.dateRange, interval: win.interval, tagType: "demand",
     });
-    const springserveDailyFull = normalizeSpringservePerformance(springserveRaw, "day");
-    const springserveDaily = trimToLastNDays(springserveDailyFull, days);
-    const springserveSummary = summarizeSpringservePerformance(springserveDaily);
+    const springserveSeries = analyzeSpringserveSeries(springserveRaw, win);
+    const springserveDaily = springserveSeries.rows;
+    const springserveSummary = springserveSeries.summary;
 
     /* 6. Combined verdict */
     const rca = analyzeFullRca({
@@ -218,6 +250,8 @@ router.get("/investigate", async (req, res) => {
       deliveryName: summary.deliveryName,
       demandTagId: Number(demandTagId),
       daysAnalyzed: Number(days),
+      interval: win.interval,
+      hoursAnalyzed: win.interval === "hour" ? win.hours : undefined,
       status: rca.status,
       confidence: rca.confidence,
       reason: rca.reason,
@@ -238,7 +272,12 @@ router.get("/investigate", async (req, res) => {
 
       acu: { ...acuSummary, perSetup: acuTrend.perSetup },
       athena: { summary: athenaSummary, perCluster: athenaTrend.perCluster },
-      springserve: { daily: springserveDaily, summary: springserveSummary },
+      springserve: {
+        interval: springserveSeries.interval,
+        window: springserveSeries.window,
+        daily: springserveDaily,
+        summary: springserveSummary,
+      },
 
       rca,
       investigationId: doc._id,

@@ -8,6 +8,7 @@ import { uploadToS3 } from "../s3.js";
 import { getPromos, putPromos } from "../stormforge.js";
 import Channel from "../models/Channel.js";
 import Log from "../models/Log.js";
+import { resolvePlatformId, canAccessChannel } from "../utils/platforms.js";
 
 const upload = multer({ dest: "/tmp" });
 const router = express.Router();
@@ -36,169 +37,178 @@ function ensureFillerConfig(data) {
   return data;
 }
 
+/* ---------- Parse targets ----------
+   New:    targets = [{ channel: "Zee News", platforms: ["Samsung","LG"] }, ...]
+           (each channel has its own platform selection)
+   Legacy: channelNames = [...], platforms = [...]  (same platforms for all)
+-------------------------------------- */
+function parseJsonField(value, field) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw Object.assign(new Error(`${field} must be valid JSON`), { status: 400 });
+  }
+}
+
+function parseTargets(body) {
+  const targets = parseJsonField(body.targets, "targets");
+
+  let list;
+  if (targets !== undefined) {
+    if (!Array.isArray(targets)) throw Object.assign(new Error("targets must be an array"), { status: 400 });
+    list = targets.map((t) => ({
+      channel: String(t?.channel || "").trim(),
+      platforms: Array.isArray(t?.platforms) ? t.platforms.map(String) : [],
+    }));
+  } else {
+    const channelNames = parseJsonField(body.channelNames, "channelNames") || [];
+    const platforms = parseJsonField(body.platforms, "platforms") || [];
+    list = channelNames.map((channel) => ({ channel: String(channel), platforms: platforms.map(String) }));
+  }
+
+  // merge duplicates, drop empties
+  const merged = new Map();
+  for (const t of list) {
+    if (!t.channel || !t.platforms.length) continue;
+    const set = merged.get(t.channel) || new Set();
+    t.platforms.forEach((p) => set.add(p));
+    merged.set(t.channel, set);
+  }
+  return [...merged.entries()].map(([channel, set]) => ({ channel, platforms: [...set] }));
+}
+
+function cleanupTemp(file) {
+  if (!file?.path) return;
+  try {
+    fs.unlinkSync(file.path);
+  } catch (err) {
+    console.warn("Failed to remove temp file:", err.message);
+  }
+}
+
 /* ---------- UPLOAD ---------- */
 router.post("/", upload.single("file"), async (req, res) => {
   try {
-    const { channelNames, platforms } = req.body;
+    if (!req.file) {
+      return res.status(400).json({ error: "file required" });
+    }
 
-    if (!channelNames || !platforms || !req.file) {
+    const targets = parseTargets(req.body);
+    if (!targets.length) {
+      return res.status(400).json({ error: "Select at least one platform for at least one channel" });
+    }
+
+    /* ---------- Access check: refuse the whole request ---------- */
+    const forbidden = targets.filter((t) => !canAccessChannel(req.user, t.channel)).map((t) => t.channel);
+    if (forbidden.length) {
+      return res.status(403).json({ error: `No access to channel(s): ${forbidden.join(", ")}` });
+    }
+
+    /* ---------- Resolve every target BEFORE uploading ---------- */
+    const failures = [];
+    const resolved = [];
+
+    const docs = await Channel.find({ channel: { $in: targets.map((t) => t.channel) } });
+    const byName = new Map(docs.map((d) => [d.channel, d]));
+
+    for (const t of targets) {
+      const doc = byName.get(t.channel);
+      if (!doc) {
+        t.platforms.forEach((platform) => failures.push({ channel: t.channel, platform, reason: "Channel not found" }));
+        continue;
+      }
+      for (const platform of t.platforms) {
+        const channelId = resolvePlatformId(doc, platform);
+        if (!channelId) {
+          failures.push({ channel: t.channel, platform, reason: "Platform not configured for this channel" });
+          continue;
+        }
+        resolved.push({ channel: t.channel, platform, channelId });
+      }
+    }
+
+    if (!resolved.length) {
       return res.status(400).json({
-        error: "channelNames, platforms & file required"
+        error: "None of the selected channel/platform combinations are configured",
+        failures,
       });
     }
 
-    const selectedChannels = JSON.parse(channelNames);
-    const platformList = JSON.parse(platforms);
-
     /* ---------- Upload to S3 ---------- */
-    const filename = sanitizeFilename(
-      req.file.originalname
-    );
-
-    const cfUrl = await uploadToS3(
-      req.file.path,
-      filename
-    );
+    const filename = sanitizeFilename(req.file.originalname);
+    const cfUrl = await uploadToS3(req.file.path, filename);
 
     const deliveries = [];
 
-    /* ---------- Process all channels ---------- */
-    for (const channelName of selectedChannels) {
+    /* ---------- Update StormForge per target ---------- */
+    for (const { channel: channelName, platform, channelId } of resolved) {
+      console.log(`➡️ Updating ${channelName} | ${platform} | ${channelId}`);
 
-      const channel = await Channel.findOne({
-        channel: channelName
-      });
-
-      if (!channel) {
-        console.log(`❌ Channel not found: ${channelName}`);
+      let data;
+      try {
+        data = await getPromos(channelId);
+      } catch (err) {
+        console.error(`❌ Stormforge fetch failed ${channelId}`, err.message);
+        failures.push({ channel: channelName, platform, channelId, reason: `StormForge fetch failed: ${err.message}` });
         continue;
       }
 
-      for (const platform of platformList) {
-
-        const channelId =
-          channel.platforms?.[platform];
-
-        if (!channelId) {
-          console.log(
-            `❌ No channelId for ${channelName} / ${platform}`
-          );
-          continue;
-        }
-
-        console.log(
-          `➡️ Updating ${channelName} | ${platform} | ${channelId}`
-        );
-
-        let data;
-
-        try {
-          data = await getPromos(channelId);
-        } catch (err) {
-          console.error(
-            `❌ Stormforge fetch failed ${channelId}`,
-            err.message
-          );
-          continue;
-        }
-
-        if (!data) {
-          continue;
-        }
-
-        data = ensureFillerConfig(data);
-
-        let urls =
-          data.ssai_configuration.filler_config.url || [];
-
-        /*
-         * Remove any previous promo
-         * having same filename
-         */
-        urls = urls.filter(url => {
-          try {
-            return !url.endsWith(filename);
-          } catch {
-            return true;
-          }
-        });
-
-        /*
-         * Add latest upload at top
-         */
-        urls.unshift(cfUrl);
-
-        data.ssai_configuration.filler_config.url =
-          urls;
-
-        try {
-          await putPromos(channelId, data);
-
-          console.log(
-            `✅ Updated ${channelName} | ${platform}`
-          );
-
-        } catch (err) {
-
-          console.error(
-            `❌ Stormforge update failed ${channelId}`,
-            err.message
-          );
-
-          continue;
-        }
-
-        deliveries.push({
-          channel: channelName,
-          platform,
-          channelId
-        });
-
-        /* ---------- Audit Log ---------- */
-        await Log.create({
-          action: "UPLOAD_PROMO",
-          userEmail: req.user.email,
-          channel: channelName,
-          platform,
-          channelId,
-          details: {
-            filename,
-            url: cfUrl,
-            overwritten: true
-          }
-        });
+      if (!data) {
+        failures.push({ channel: channelName, platform, channelId, reason: "StormForge returned no delivery config" });
+        continue;
       }
+
+      data = ensureFillerConfig(data);
+
+      // Replace any previous promo with the same filename, newest first
+      let urls = (data.ssai_configuration.filler_config.url || [])
+        .filter((url) => typeof url !== "string" || !url.endsWith(filename));
+      urls.unshift(cfUrl);
+      data.ssai_configuration.filler_config.url = urls;
+
+      try {
+        await putPromos(channelId, data);
+        console.log(`✅ Updated ${channelName} | ${platform}`);
+      } catch (err) {
+        console.error(`❌ Stormforge update failed ${channelId}`, err.message);
+        failures.push({ channel: channelName, platform, channelId, reason: `StormForge update failed: ${err.message}` });
+        continue;
+      }
+
+      deliveries.push({ channel: channelName, platform, channelId });
+
+      /* ---------- Audit Log ---------- */
+      await Log.create({
+        action: "UPLOAD_PROMO",
+        userEmail: req.user.email,
+        channel: channelName,
+        platform,
+        channelId,
+        details: { filename, url: cfUrl, overwritten: true }
+      });
     }
 
-    /* ---------- Cleanup temp file ---------- */
-    try {
-      fs.unlinkSync(req.file.path);
-    } catch (err) {
-      console.warn(
-        "Failed to remove temp file:",
-        err.message
-      );
-    }
+    const status = deliveries.length ? 200 : 502;
 
-    res.json({
-      success: true,
+    res.status(status).json({
+      success: failures.length === 0,
+      partial: deliveries.length > 0 && failures.length > 0,
       filename,
       url: cfUrl,
       deliveries,
-      channelsProcessed: selectedChannels.length,
-      platformsProcessed: platformList.length
+      failures,
+      channelsProcessed: targets.length,
+      targetsRequested: targets.reduce((n, t) => n + t.platforms.length, 0),
+      ...(status === 502 ? { error: "Upload to S3 succeeded but no StormForge delivery was updated" } : {})
     });
 
   } catch (err) {
-
-    console.error(
-      "❌ Upload error:",
-      err
-    );
-
-    res.status(500).json({
-      error: err.message
-    });
+    console.error("❌ Upload error:", err);
+    res.status(err.status || 500).json({ error: err.message });
+  } finally {
+    cleanupTemp(req.file);
   }
 });
 
