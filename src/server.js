@@ -34,6 +34,11 @@ app.use("/rca", rcaRoutes);
 /* ---------- SERVER ---------- */
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
+/* Node closes any request still running after 5 minutes by default,
+   which cuts off large promo batches mid-upload. Allow 30 minutes. */
+server.requestTimeout = Number(process.env.REQUEST_TIMEOUT_MS || 30 * 60 * 1000);
+server.headersTimeout = 2 * 60 * 1000;

@@ -74,9 +74,11 @@
     }
 
     progress {
-      width: 300px;
+      width: 100%;
+      max-width: 520px;
       height: 10px;
     }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #platforms label {
       display: inline-flex;
@@ -307,7 +309,7 @@
     <br>
     <input type="file" id="fileInput" accept="video/mp4" multiple><br><br>
 
-    <button onclick="uploadPromo()">Upload</button>
+    <button id="uploadBtn" onclick="uploadPromo()">Upload</button>
     <button class="secondary" onclick="cancelUpload()">Cancel</button>
 
     <br><br>
@@ -582,35 +584,85 @@ function getSelectedPlatformsFor(channel) {
   return [...(platformSelection.get(channel) || [])];
 }
 
-/* ---------- MULTI Upload ---------- */
-function sendUpload(file, targets) {
+/* ---------- MULTI Upload ----------
+   All files go in ONE request. The bar covers the three stages:
+     sending to server (browser progress)  0–45%
+     server → S3 (streamed from server)   45–90%
+     StormForge updates (streamed)        90–100%
+------------------------------------- */
+const STAGE = { send: [0, 45], s3: [45, 90], sf: [90, 100] };
+let uploadStage = null;
+
+function fmtBytes(n) {
+  if (!n) return "0 MB";
+  return n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`;
+}
+function fmtSecs(ms) { return `${(ms / 1000).toFixed(1)}s`; }
+
+function setProgress(stage, fraction, text) {
+  const [a, b] = STAGE[stage];
+  const f = Math.max(0, Math.min(1, fraction || 0));
+  // never move backwards
+  progressBar.value = Math.max(progressBar.value, a + (b - a) * f);
+  if (text) statusEl.textContent = text;
+}
+
+function sendBatch(files, targets, onEvent) {
   return new Promise((resolve) => {
     const fd = new FormData();
-    fd.append("file", file);
+    for (const f of files) fd.append("files", f);
     fd.append("targets", JSON.stringify(targets));
 
+    const totalBytes = [...files].reduce((n, f) => n + f.size, 0);
     const xhr = new XMLHttpRequest();
     currentXHR = xhr;
-    xhr.open("POST", "/upload");
+    let parsed = 0;
+    let final = null;
+
+    xhr.open("POST", "/upload?stream=1");
     xhr.setRequestHeader("Authorization", "Bearer " + localStorage.getItem("token"));
 
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) progressBar.value = (e.loaded / e.total) * 100;
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      uploadStage = "send";
+      setProgress("send", e.loaded / e.total,
+        `Sending to server… ${Math.round((e.loaded / e.total) * 100)}% (${fmtBytes(e.loaded)} of ${fmtBytes(totalBytes)})`);
+    };
+    xhr.upload.onload = () => {
+      setProgress("send", 1, "Files received by server, preparing…");
+    };
+
+    // Server streams one JSON object per line while it works
+    xhr.onprogress = () => {
+      const text = xhr.responseText;
+      let nl;
+      while ((nl = text.indexOf("\n", parsed)) !== -1) {
+        const line = text.slice(parsed, nl).trim();
+        parsed = nl + 1;
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === "done" || ev.type === "error") final = ev;
+          onEvent(ev);
+        } catch { /* partial line, wait for more */ }
+      }
     };
 
     xhr.onload = () => {
-      progressBar.value = 0;
+      xhr.onprogress();                       // flush any remaining lines
       if (xhr.status === 401) {
         alert("Session expired. Login again.");
         logout();
         return resolve({ aborted: true });
       }
+      if (final) return resolve(final.type === "done" ? final : { status: 500, error: final.error });
+      // non-stream error response (validation, 403, …)
       let body = {};
-      try { body = JSON.parse(xhr.responseText); } catch { /* non-JSON error */ }
+      try { body = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
       resolve({ status: xhr.status, ...body });
     };
-    xhr.onerror = () => { progressBar.value = 0; resolve({ status: 0, error: "Network error" }); };
-    xhr.onabort = () => { progressBar.value = 0; resolve({ aborted: true }); };
+    xhr.onerror = () => resolve({ status: 0, error: "Network error — the connection to the server was lost" });
+    xhr.onabort = () => resolve({ aborted: true });
 
     xhr.send(fd);
   });
@@ -627,39 +679,65 @@ async function uploadPromo() {
   const skipped = getSelectedChannels().filter(ch => !targets.some(t => t.channel === ch));
   if (skipped.length && !confirm(`No platforms selected for: ${skipped.join(", ")}.\n\nThese channels will be skipped. Continue?`)) return;
 
-  const lines = [];
-  const resultBox = () => document.getElementById("uploadResults");
-  resultBox().innerHTML = "";
+  const resultBox = document.getElementById("uploadResults");
+  resultBox.innerHTML = "";
+  progressBar.value = 0;
+  const started = Date.now();
+  const uploadBtn = document.getElementById("uploadBtn");
+  uploadBtn.disabled = true;
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    statusEl.textContent = `Uploading ${file.name} (${i + 1}/${files.length})…`;
-
-    const r = await sendUpload(file, targets);
-    if (r.aborted) { statusEl.textContent = "❌ Upload cancelled"; currentXHR = null; return; }
-
-    if (r.status >= 200 && r.status < 300 || (r.deliveries && r.deliveries.length)) {
-      lines.push(`<div class="ok">✅ ${escapeHtml(file.name)} → ${r.deliveries.length} deliver${r.deliveries.length === 1 ? "y" : "ies"} updated</div>`);
-    } else {
-      lines.push(`<div class="fail">❌ ${escapeHtml(file.name)}: ${escapeHtml(r.error || `HTTP ${r.status}`)}</div>`);
+  const r = await sendBatch(files, targets, (ev) => {
+    if (ev.type === "start") {
+      uploadStage = "s3";
+      setProgress("s3", 0, `Uploading ${ev.files.length} file(s) to S3…`);
+    } else if (ev.type === "s3") {
+      uploadStage = "s3";
+      setProgress("s3", ev.total ? ev.loaded / ev.total : 0,
+        `Uploading to S3… ${ev.filesDone}/${ev.filesTotal} files done (${fmtBytes(ev.loaded)} of ${fmtBytes(ev.total)})`);
+    } else if (ev.type === "delivery") {
+      uploadStage = "sf";
+      setProgress("sf", ev.done / ev.total,
+        `Updating StormForge… ${ev.done}/${ev.total} deliveries${ev.ok ? "" : ` (${ev.channel} / ${ev.platform} failed)`}`);
     }
-    for (const f of r.failures || []) {
-      lines.push(`<div class="fail" style="margin-left:18px;">• ${escapeHtml(f.channel)} / ${escapeHtml(f.platform)}: ${escapeHtml(f.reason)}</div>`);
-    }
-    resultBox().innerHTML = lines.join("");
-  }
+  });
 
   currentXHR = null;
-  const anyFail = lines.some(l => l.includes('class="fail"'));
-  statusEl.textContent = anyFail ? "⚠️ Uploads finished with errors — see details below" : "✅ All uploads complete";
+  uploadBtn.disabled = false;
+
+  if (r.aborted) {
+    statusEl.textContent = uploadStage === "sf"
+      ? "⚠️ Cancelled while StormForge was being updated — some deliveries may already have the new promos. Reload promos to check."
+      : "❌ Upload cancelled";
+    progressBar.value = 0;
+    return;
+  }
+
+  const lines = [];
+  for (const f of r.files || []) {
+    lines.push(f.ok
+      ? `<div class="ok">✅ ${escapeHtml(f.name)} → ${f.deliveriesUpdated} deliver${f.deliveriesUpdated === 1 ? "y" : "ies"} updated</div>`
+      : `<div class="fail">❌ ${escapeHtml(f.name)}: ${escapeHtml(f.error)}</div>`);
+  }
+  if (!r.files) lines.push(`<div class="fail">❌ ${escapeHtml(r.error || `Upload failed (HTTP ${r.status})`)}</div>`);
+  for (const f of (r.failures || []).filter(x => !x.file)) {
+    lines.push(`<div class="fail" style="margin-left:18px;">• ${escapeHtml(f.channel)} / ${escapeHtml(f.platform)}: ${escapeHtml(f.reason)}</div>`);
+  }
+  resultBox.innerHTML = lines.join("");
+
+  const t = r.timings;
+  const timingText = t ? ` · S3 ${fmtSecs(t.s3Ms)}, StormForge ${fmtSecs(t.stormforgeMs)}` : "";
+  const ok = r.files && r.success;
+  progressBar.value = r.files ? 100 : 0;
+  statusEl.textContent = (ok ? "✅ All uploads complete" : "⚠️ Finished with errors — see details below")
+    + ` in ${fmtSecs(Date.now() - started)}${timingText}`;
+
   fileInput.value = "";
-  loadPromos();
+  if (r.deliveries?.length) loadPromos();
 }
 
 function cancelUpload() {
-  currentXHR?.abort();
-  progressBar.value = 0;
-  statusEl.textContent = "❌ Upload cancelled";
+  if (!currentXHR) return;
+  currentXHR.abort();   // result message is set by uploadPromo()
 }
 
 /* ---------- Load promos ---------- */

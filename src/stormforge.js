@@ -1,8 +1,11 @@
 import "./env.js";
 import axios from "axios";
 
+/* Without a timeout, one slow StormForge response stalls the whole
+   upload indefinitely. */
 const client = axios.create({
   baseURL: process.env.STORMFORGE_BASE_URL,
+  timeout: Number(process.env.STORMFORGE_TIMEOUT_MS || 30000),
   headers: {
     Authorization: `Bearer ${process.env.STORMFORGE_BEARER}`,
     "Content-Type": "application/json"
